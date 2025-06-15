@@ -33,15 +33,11 @@ st.markdown("""
 
 class MusicianPaymentSystem:
     def __init__(self, data_path=None):
-        # Use Miembros.xlsx as default instead of Actes.xlsx
-        if data_path is None:
-            data_path = "Data/Miembros.xlsx"
         self.data_path = data_path
         self.asistencia_df = None
         self.presupuesto_df = None
         self.configuracion_df = None
-        if data_path:
-            self.load_data()
+        # Do not auto-load data - let user upload files
     
     def load_data(self):
         """Load data from Excel file"""
@@ -66,23 +62,181 @@ class MusicianPaymentSystem:
         return True
     
     def load_from_uploaded_file(self, uploaded_file):
-        """Load data from uploaded Excel file"""
+        """Load data from uploaded Excel file with dynamic sheet detection"""
         try:
-            # Load all sheets from uploaded file
-            self.asistencia_df = pd.read_excel(uploaded_file, sheet_name="Asistencia")
-            self.presupuesto_df = pd.read_excel(uploaded_file, sheet_name="Presupuesto")
-            self.configuracion_df = pd.read_excel(uploaded_file, sheet_name="Configuracion_Precios")
+            # First, get all sheet names to validate structure
+            excel_file = pd.ExcelFile(uploaded_file)
+            available_sheets = excel_file.sheet_names
+            
+            st.info(f"📋 Hojas encontradas en el archivo: {', '.join(available_sheets)}")
+            
+            # Check for required sheets with flexible naming
+            asistencia_sheet = self._find_sheet_by_patterns(available_sheets, ["Asistencia", "asistencia", "Attendance", "attendance"])
+            presupuesto_sheet = self._find_sheet_by_patterns(available_sheets, ["Presupuesto", "presupuesto", "Budget", "budget"])
+            configuracion_sheet = self._find_sheet_by_patterns(available_sheets, ["Configuracion_Precios", "configuracion_precios", "Configuracion", "configuracion", "Prices", "prices", "Config", "config"])
+            
+            if not asistencia_sheet:
+                st.error("❌ No se encontró hoja de Asistencia. Nombres esperados: Asistencia, asistencia, Attendance, attendance")
+                return False
+            
+            if not presupuesto_sheet:
+                st.error("❌ No se encontró hoja de Presupuesto. Nombres esperados: Presupuesto, presupuesto, Budget, budget")
+                return False
+                
+            if not configuracion_sheet:
+                st.error("❌ No se encontró hoja de Configuración de Precios. Nombres esperados: Configuracion_Precios, Configuracion, Config, etc.")
+                return False
+            
+            st.success(f"✅ Hojas identificadas: {asistencia_sheet}, {presupuesto_sheet}, {configuracion_sheet}")
+            
+            # Load sheets with identified names
+            self.asistencia_df = pd.read_excel(uploaded_file, sheet_name=asistencia_sheet)
+            self.presupuesto_df = pd.read_excel(uploaded_file, sheet_name=presupuesto_sheet)
+            self.configuracion_df = pd.read_excel(uploaded_file, sheet_name=configuracion_sheet)
+            
+            # Validate and clean data structure
+            if not self._validate_and_clean_data_structure():
+                return False
             
             # Validate data consistency
             self._validate_data_consistency()
             
             # Update original weights
             st.session_state.original_weights = self.configuracion_df.copy()
+            
+            # Show data summary
+            self._show_data_summary()
+            
             return True
                 
         except Exception as e:
             st.error(f"Error loading uploaded file: {str(e)}")
             return False
+    
+    def _find_sheet_by_patterns(self, available_sheets, patterns):
+        """Find sheet name that matches any of the given patterns"""
+        for pattern in patterns:
+            for sheet in available_sheets:
+                if pattern.lower() in sheet.lower():
+                    return sheet
+        return None
+    
+    def _validate_and_clean_data_structure(self):
+        """Validate and clean the structure of loaded data"""
+        try:
+            # Validate Asistencia sheet
+            required_asistencia_cols = ['Nombre', 'Apellidos', 'Instrumento', 'Categoria']
+            missing_cols = [col for col in required_asistencia_cols if col not in self.asistencia_df.columns]
+            
+            if missing_cols:
+                st.error(f"❌ Columnas faltantes en hoja de Asistencia: {missing_cols}")
+                st.info("💡 Columnas requeridas: Nombre, Apellidos, Instrumento, Categoria")
+                return False
+            
+            # Validate Presupuesto sheet - ensure ACTES column exists
+            if 'ACTES' not in self.presupuesto_df.columns:
+                st.error("❌ Columna 'ACTES' faltante en hoja de Presupuesto")
+                return False
+            
+            # Look for budget columns with flexible naming
+            budget_cols = []
+            for col in self.presupuesto_df.columns:
+                if any(word in col.upper() for word in ['REPARTIR', 'BUDGET', 'TOTAL', 'AMOUNT']):
+                    budget_cols.append(col)
+            
+            if not budget_cols:
+                # Try to find common budget column patterns
+                possible_budget_cols = [col for col in self.presupuesto_df.columns if col.upper() in ['A REPARTIR', 'TOTAL', 'AMOUNT', 'BUDGET']]
+                if not possible_budget_cols:
+                    st.error("❌ No se encontró columna de presupuesto. Busque columnas como 'A REPARTIR', 'TOTAL', 'BUDGET'")
+                    return False
+                budget_cols = possible_budget_cols
+            
+            st.info(f"💰 Columnas de presupuesto detectadas: {', '.join(budget_cols)}")
+            
+            # Validate Configuracion sheet - ensure ACTES column exists
+            if 'ACTES' not in self.configuracion_df.columns:
+                st.error("❌ Columna 'ACTES' faltante en hoja de Configuración")
+                return False
+            
+            category_cols = [col for col in self.configuracion_df.columns if col in ['A', 'B', 'C', 'D', 'E']]
+            
+            if len(category_cols) == 0:
+                st.error("❌ No se encontraron columnas de categorías (A, B, C, D, E) en la configuración")
+                return False
+            
+            st.info(f"🏷️ Categorías detectadas: {', '.join(category_cols)}")
+            
+            # Clean and standardize data
+            self._clean_data()
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error validating data structure: {str(e)}")
+            return False
+    
+    def _clean_data(self):
+        """Clean and standardize the loaded data"""
+        try:
+            # Clean musician names
+            self.asistencia_df['Nombre'] = self.asistencia_df['Nombre'].astype(str).str.strip()
+            self.asistencia_df['Apellidos'] = self.asistencia_df['Apellidos'].astype(str).str.strip()
+            
+            # Ensure categories are uppercase
+            self.asistencia_df['Categoria'] = self.asistencia_df['Categoria'].astype(str).str.upper().str.strip()
+            
+            # Clean event names in all sheets
+            if 'ACTES' in self.presupuesto_df.columns:
+                self.presupuesto_df['ACTES'] = self.presupuesto_df['ACTES'].astype(str).str.strip()
+            
+            if 'ACTES' in self.configuracion_df.columns:
+                self.configuracion_df['ACTES'] = self.configuracion_df['ACTES'].astype(str).str.strip()
+            
+            # Clean attendance data - convert to numeric and fill NaN with 0
+            event_columns = self.get_events_list()
+            for event in event_columns:
+                self.asistencia_df[event] = pd.to_numeric(self.asistencia_df[event], errors='coerce').fillna(0)
+                # Ensure binary values (0 or 1)
+                self.asistencia_df[event] = self.asistencia_df[event].apply(lambda x: 1 if x > 0 else 0)
+            
+            st.success("✅ Datos limpiados y estandarizados")
+            
+        except Exception as e:
+            st.warning(f"⚠️ Advertencia en limpieza de datos: {str(e)}")
+    
+    def _show_data_summary(self):
+        """Show summary of loaded data"""
+        try:
+            st.subheader("📊 Resumen de Datos Cargados")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Músicos", len(self.asistencia_df))
+                
+            with col2:
+                events_count = len(self.get_events_list())
+                st.metric("Total Actos", events_count)
+                
+            with col3:
+                total_budget = self.presupuesto_df.select_dtypes(include=[np.number]).sum().sum()
+                st.metric("Presupuesto Total", f"€{total_budget:,.2f}")
+            
+            # Show categories distribution
+            st.write("**Distribución por Categorías:**")
+            category_counts = self.asistencia_df['Categoria'].value_counts()
+            st.write(category_counts.to_dict())
+            
+            # Show first few events
+            events = self.get_events_list()[:10]  # Show first 10 events
+            if events:
+                st.write(f"**Primeros Actos:** {', '.join(events)}")
+                if len(self.get_events_list()) > 10:
+                    st.write(f"... y {len(self.get_events_list()) - 10} actos más")
+            
+        except Exception as e:
+            st.warning(f"Error mostrando resumen: {str(e)}")
     
     def _validate_data_consistency(self):
         """Validate that all sheets have consistent event data"""
@@ -424,23 +578,43 @@ def main():
     
     # File upload in sidebar (moved to top)
     st.sidebar.subheader("📁 Cargar Archivo Excel")
+    
+    # Show instructions for file structure
+    with st.sidebar.expander("📋 Estructura del Archivo", expanded=False):
+        st.write("**Hojas requeridas:**")
+        st.write("• **Asistencia**: Datos de asistencia de músicos a actos")
+        st.write("• **Presupuesto**: Información presupuestaria por acto")
+        st.write("• **Configuracion** (o Config/Prices): Ponderaciones por categoría")
+        st.write("")
+        st.write("**Columnas mínimas:**")
+        st.write("• Asistencia: Nombre, Apellidos, Instrumento, Categoria + columnas de actos")
+        st.write("• Presupuesto: ACTES + columnas de presupuesto")
+        st.write("• Configuracion: ACTES, A, B, C, D, E")
+    
     uploaded_file = st.sidebar.file_uploader(
         "Selecciona un archivo Excel:",
         type=['xlsx', 'xls'],
-        help="El archivo debe contener las hojas: Asistencia, Presupuesto y Configuracion_Precios"
+        help="El archivo se adaptará automáticamente a diferentes números de actos y nombres"
     )
     
     if uploaded_file is not None:
-        if st.sidebar.button("🔄 Cargar Archivo", use_container_width=True):
-            with st.spinner("Cargando archivo..."):
+        # Show file info
+        st.sidebar.info(f"📄 Archivo: {uploaded_file.name}")
+        st.sidebar.info(f"📏 Tamaño: {uploaded_file.size / 1024:.1f} KB")
+        
+        if st.sidebar.button("🔄 Cargar y Procesar Archivo", use_container_width=True):
+            with st.spinner("Analizando y cargando archivo..."):
                 if system.load_from_uploaded_file(uploaded_file):
                     # Reset editing state when new file is loaded
                     if 'editing_weights' in st.session_state:
                         del st.session_state.editing_weights
-                    st.success("✅ Archivo cargado correctamente!")
+                    st.success("✅ Archivo cargado y validado correctamente!")
+                    st.balloons()  # Celebration effect
                     st.rerun()
                 else:
                     st.error("❌ Error al cargar el archivo")
+    else:
+        st.sidebar.warning("⚠️ Selecciona un archivo Excel para comenzar")
     
     st.sidebar.markdown("---")
     
@@ -467,7 +641,30 @@ def show_dashboard(system):
     # Check if data is loaded
     if system.asistencia_df is None or system.presupuesto_df is None or system.configuracion_df is None:
         st.warning("⚠️ No hay archivo cargado. Por favor, carga un archivo Excel usando el botón en la barra lateral.")
-        st.info("👈 Utiliza el botón 'Cargar Archivo Excel' en la barra lateral para comenzar.")
+        
+        # Show welcome message and instructions
+        st.markdown("""
+        ### 🎼 Bienvenido al Sistema de Cobro Musical
+        
+        Este sistema te permite:
+        - ✅ **Cargar cualquier archivo Excel** con datos de asistencia y presupuestos
+        - 🔄 **Adaptarse automáticamente** a diferentes números de actos y nombres
+        - ⚖️ **Editar ponderaciones** por categoría en tiempo real
+        - 📊 **Generar reportes completos** y exportar a Excel
+        
+        ### 📋 Para comenzar:
+        1. **Prepara tu archivo Excel** con las hojas: Asistencia, Presupuesto, Configuración
+        2. **Carga el archivo** usando el botón en la barra lateral
+        3. **El sistema se adaptará automáticamente** al número de actos y sus nombres
+        
+        ### 🏗️ Flexible y Escalable:
+        - Soporta cualquier número de actos (5, 10, 50, 100+)
+        - Nombres de actos personalizables
+        - Validación automática de estructura
+        - Limpieza y estandarización de datos
+        """)
+        
+        st.info("👈 Utiliza el botón 'Cargar y Procesar Archivo' en la barra lateral para comenzar.")
         return
     
     # Key metrics
