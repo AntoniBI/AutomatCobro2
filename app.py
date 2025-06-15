@@ -33,6 +33,9 @@ st.markdown("""
 
 class MusicianPaymentSystem:
     def __init__(self, data_path=None):
+        # Use Miembros.xlsx as default instead of Actes.xlsx
+        if data_path is None:
+            data_path = "Data/Miembros.xlsx"
         self.data_path = data_path
         self.asistencia_df = None
         self.presupuesto_df = None
@@ -49,6 +52,9 @@ class MusicianPaymentSystem:
             self.asistencia_df = pd.read_excel(self.data_path, sheet_name="Asistencia")
             self.presupuesto_df = pd.read_excel(self.data_path, sheet_name="Presupuesto")
             self.configuracion_df = pd.read_excel(self.data_path, sheet_name="Configuracion_Precios")
+            
+            # Validate data consistency
+            self._validate_data_consistency()
             
             # Store original weights for reset functionality
             if 'original_weights' not in st.session_state:
@@ -67,6 +73,9 @@ class MusicianPaymentSystem:
             self.presupuesto_df = pd.read_excel(uploaded_file, sheet_name="Presupuesto")
             self.configuracion_df = pd.read_excel(uploaded_file, sheet_name="Configuracion_Precios")
             
+            # Validate data consistency
+            self._validate_data_consistency()
+            
             # Update original weights
             st.session_state.original_weights = self.configuracion_df.copy()
             return True
@@ -74,6 +83,40 @@ class MusicianPaymentSystem:
         except Exception as e:
             st.error(f"Error loading uploaded file: {str(e)}")
             return False
+    
+    def _validate_data_consistency(self):
+        """Validate that all sheets have consistent event data"""
+        try:
+            # Get events from each sheet
+            asistencia_events = set(self.get_events_list())
+            presupuesto_events = set(self.presupuesto_df['ACTES'].values)
+            configuracion_events = set(self.configuracion_df['ACTES'].values)
+            
+            # Find discrepancies
+            missing_in_presupuesto = asistencia_events - presupuesto_events
+            missing_in_configuracion = asistencia_events - configuracion_events
+            extra_in_presupuesto = presupuesto_events - asistencia_events
+            extra_in_configuracion = configuracion_events - asistencia_events
+            
+            # Report issues
+            if missing_in_presupuesto:
+                st.warning(f"⚠️ Eventos en Asistencia pero faltantes en Presupuesto: {missing_in_presupuesto}")
+            
+            if missing_in_configuracion:
+                st.warning(f"⚠️ Eventos en Asistencia pero faltantes en Configuracion_Precios: {missing_in_configuracion}")
+                
+            if extra_in_presupuesto:
+                st.warning(f"⚠️ Eventos en Presupuesto pero faltantes en Asistencia: {extra_in_presupuesto}")
+                
+            if extra_in_configuracion:
+                st.warning(f"⚠️ Eventos en Configuracion_Precios pero faltantes en Asistencia: {extra_in_configuracion}")
+            
+            # Show success message if all consistent
+            if not (missing_in_presupuesto or missing_in_configuracion or extra_in_presupuesto or extra_in_configuracion):
+                st.success(f"✅ Datos consistentes: {len(asistencia_events)} eventos encontrados en todas las hojas")
+                
+        except Exception as e:
+            st.error(f"Error validating data consistency: {str(e)}")
     
     def get_events_list(self):
         """Get list of events from attendance data"""
@@ -157,7 +200,7 @@ class MusicianPaymentSystem:
             # 2. Normalize column names and values
             attendance_long['Musico'] = attendance_long['Nombre'] + ' ' + attendance_long['Apellidos']
             
-            # 3. Join with budget
+            # 3. Join with budget - ENSURE ALL EVENTS ARE PROCESSED
             attendance_budget = attendance_long.merge(
                 self.presupuesto_df,
                 left_on='Acto',
@@ -165,13 +208,52 @@ class MusicianPaymentSystem:
                 how='left'
             )
             
-            # 4. Join with weights
+            # Check for events that didn't match in budget
+            events_without_budget = attendance_budget[attendance_budget['ACTES'].isna()]['Acto'].unique()
+            if len(events_without_budget) > 0:
+                print(f"WARNING: Events without budget data: {events_without_budget}")
+            
+            # 4. Join with weights - ENSURE ALL EVENTS ARE PROCESSED  
             attendance_weights = attendance_budget.merge(
                 self.configuracion_df,
                 left_on='Acto',
                 right_on='ACTES',
-                how='left'
+                how='left',
+                suffixes=('', '_config')
             )
+            
+            # Check for events that didn't match in configuration
+            events_without_config = attendance_weights[attendance_weights['ACTES_config'].isna()]['Acto'].unique()
+            if len(events_without_config) > 0:
+                print(f"WARNING: Events without configuration data: {events_without_config}")
+            
+            # More robust handling of missing data
+            # First, check what events have all required data
+            events_with_complete_data = []
+            events_with_missing_data = []
+            
+            for event_name in self.get_events_list():
+                has_budget = event_name in self.presupuesto_df['ACTES'].values
+                has_config = event_name in self.configuracion_df['ACTES'].values
+                
+                if has_budget and has_config:
+                    events_with_complete_data.append(event_name)
+                else:
+                    events_with_missing_data.append({
+                        'event': event_name,
+                        'has_budget': has_budget,
+                        'has_config': has_config
+                    })
+            
+            if events_with_missing_data:
+                print(f"Events with incomplete data (will be skipped from payment calculations):")
+                for item in events_with_missing_data:
+                    print(f"  - {item['event']}: Budget={item['has_budget']}, Config={item['has_config']}")
+            
+            print(f"Events with complete data for processing: {len(events_with_complete_data)}")
+            
+            # Only keep rows with complete data for payment calculation
+            attendance_weights = attendance_weights.dropna(subset=['A REPARTIR', 'A', 'B', 'C', 'D', 'E'])
             
             # 5. Filter attendees only
             attendees = attendance_weights[attendance_weights['Asistencia'] == 1].copy()
@@ -352,6 +434,9 @@ def main():
         if st.sidebar.button("🔄 Cargar Archivo", use_container_width=True):
             with st.spinner("Cargando archivo..."):
                 if system.load_from_uploaded_file(uploaded_file):
+                    # Reset editing state when new file is loaded
+                    if 'editing_weights' in st.session_state:
+                        del st.session_state.editing_weights
                     st.success("✅ Archivo cargado correctamente!")
                     st.rerun()
                 else:
@@ -441,6 +526,10 @@ def show_weights_editor(system):
     st.subheader("⚖️ Ponderaciones por Categoría")
     st.write("Edita las ponderaciones por categoría para cada acto:")
     
+    # Initialize editing state in session if not exists
+    if 'editing_weights' not in st.session_state:
+        st.session_state.editing_weights = system.configuracion_df.copy()
+    
     # Create editable dataframe with custom column configuration
     column_config = {
         "ACTES": st.column_config.TextColumn("Acto", disabled=True),
@@ -451,24 +540,31 @@ def show_weights_editor(system):
         "E": st.column_config.NumberColumn("E", min_value=0.0, max_value=10.0, step=0.1, format="%.2f")
     }
     
+    # Use session state data for consistent editing experience
     edited_df = st.data_editor(
-        system.configuracion_df,
+        st.session_state.editing_weights,
         use_container_width=True,
         num_rows="fixed",
         column_config=column_config,
-        disabled=["ACTES"]
+        disabled=["ACTES"],
+        key="ponderaciones_editor"
     )
+    
+    # Update session state immediately when data changes
+    if not edited_df.equals(st.session_state.editing_weights):
+        st.session_state.editing_weights = edited_df.copy()
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("💾 Guardar Cambios"):
-            system.configuracion_df = edited_df.copy()
+            system.configuracion_df = st.session_state.editing_weights.copy()
             st.success("Ponderaciones actualizadas correctamente!")
             st.rerun()
     
     with col2:
         if st.button("🔄 Restaurar Original"):
+            st.session_state.editing_weights = st.session_state.original_weights.copy()
             system.configuracion_df = st.session_state.original_weights.copy()
             st.success("Ponderaciones restauradas!")
             st.rerun()
@@ -476,7 +572,7 @@ def show_weights_editor(system):
     with col3:
         if st.button("👀 Vista Previa"):
             st.write("Vista previa de las ponderaciones:")
-            st.dataframe(edited_df)
+            st.dataframe(st.session_state.editing_weights)
     
     # Budget comparison table
     st.divider()
@@ -484,12 +580,7 @@ def show_weights_editor(system):
     
     # Calculate budget comparison with current weights
     try:
-        # Use temporary updated weights for calculation
-        temp_system = system
-        if 'edited_df' in locals():
-            temp_system.configuracion_df = edited_df.copy()
-        
-        # Calculate distributed amounts using current weights
+        # Calculate distributed amounts using current weights from session state
         budget_comparison_df = system.presupuesto_df.copy()
         budget_comparison_df['Total Repartido'] = 0.0
         
@@ -501,8 +592,8 @@ def show_weights_editor(system):
                 total_attendees = len(event_attendees)
                 
                 if total_attendees > 0:
-                    # Get weights for this event from edited dataframe
-                    current_weights = edited_df if 'edited_df' in locals() else system.configuracion_df
+                    # Get weights for this event from session state
+                    current_weights = st.session_state.editing_weights
                     weight_row = current_weights[current_weights['ACTES'] == event_name]
                     
                     if not weight_row.empty:
@@ -555,9 +646,9 @@ def show_weights_editor(system):
     st.subheader("💵 Ganancias por Categoría y Acto (Tiempo Real)")
     
     try:
-        # Calculate earnings by category for each event
+        # Calculate earnings by category for each event - SHOW ALL EVENTS
         earnings_data = []
-        current_weights = edited_df if 'edited_df' in locals() else system.configuracion_df
+        current_weights = st.session_state.editing_weights
         
         for _, event_row in system.presupuesto_df.iterrows():
             event_name = event_row['ACTES']
@@ -567,26 +658,29 @@ def show_weights_editor(system):
                 event_attendees = system.asistencia_df[system.asistencia_df[event_name] == 1]
                 total_attendees = len(event_attendees)
                 
-                if total_attendees > 0:
-                    # Get weights for this event
-                    weight_row = current_weights[current_weights['ACTES'] == event_name]
+                # Get weights for this event
+                weight_row = current_weights[current_weights['ACTES'] == event_name]
+                
+                if not weight_row.empty:
+                    weight_row = weight_row.iloc[0]
                     
-                    if not weight_row.empty:
-                        weight_row = weight_row.iloc[0]
-                        
-                        # Calculate earnings for each category (simplified)
-                        event_earnings = {'Acto': event_name}
-                        
-                        for category in ['A', 'B', 'C', 'D', 'E']:
-                            if category in weight_row:
+                    # Calculate earnings for each category - ALWAYS show, even if no attendees
+                    event_earnings = {'Acto': event_name}
+                    
+                    for category in ['A', 'B', 'C', 'D', 'E']:
+                        if category in weight_row:
+                            if total_attendees > 0:
                                 ponderacion = float(weight_row[category])
                                 # Calculate individual payment for this category
                                 individual_payment = (event_row['A REPARTIR'] / total_attendees) * ponderacion
                                 event_earnings[category] = f"€{individual_payment:.2f}"
                             else:
+                                # No attendees - show €0.00
                                 event_earnings[category] = "€0.00"
-                        
-                        earnings_data.append(event_earnings)
+                        else:
+                            event_earnings[category] = "€0.00"
+                    
+                    earnings_data.append(event_earnings)
         
         if earnings_data:
             earnings_df = pd.DataFrame(earnings_data)
