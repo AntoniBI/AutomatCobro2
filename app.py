@@ -212,6 +212,18 @@ class MusicianPaymentSystem:
                 fill_value=0
             )
             
+            # Get ALL events from original Excel in their original order
+            original_events_order = self.get_events_list()
+            
+            # Add missing events (those without attendees) as columns with 0 values
+            # This ensures ALL events appear in the final Excel, even if no one attended
+            for event in original_events_order:
+                if event not in payment_pivot.columns:
+                    payment_pivot[event] = 0.0
+            
+            # Reorder ALL columns to match original Excel order
+            payment_pivot = payment_pivot.reindex(columns=original_events_order)
+            
             # 11. Create attendance pivot by event
             attendance_pivot = self.asistencia_df.set_index(['Nombre', 'Apellidos', 'Instrumento', 'Categoria'])
             
