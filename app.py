@@ -336,7 +336,7 @@ class MusicianPaymentSystem:
             st.error(f"Error calculating budget difference: {str(e)}")
             return 0, 0, 0
 
-    def process_payments(self, penalty_criteria="manual", fixed_penalty_amount=0):
+    def process_payments(self, penalty_criteria="manual", fixed_penalty_amount=0, category_penalties=None):
         """Process all payment calculations according to requirements"""
         if self.asistencia_df is None or self.presupuesto_df is None or self.configuracion_df is None:
             st.error("No hay datos cargados. Por favor, carga un archivo Excel primero.")
@@ -485,7 +485,7 @@ class MusicianPaymentSystem:
             # 14. Apply penalty for missed official events
             if penalty_criteria != "manual":
                 musician_summary = self._apply_official_event_penalties(
-                    musician_summary, penalty_criteria, fixed_penalty_amount
+                    musician_summary, penalty_criteria, fixed_penalty_amount, category_penalties
                 )
             
             # 15. Filter musicians with earnings > 0
@@ -516,7 +516,7 @@ class MusicianPaymentSystem:
             st.error(f"Error processing payments: {str(e)}")
             return None
     
-    def _apply_official_event_penalties(self, musician_summary, penalty_criteria, fixed_penalty_amount):
+    def _apply_official_event_penalties(self, musician_summary, penalty_criteria, fixed_penalty_amount, category_penalties=None):
         """Apply penalties for missed official events"""
         try:
             # Create a copy to avoid modifying the original
@@ -531,8 +531,11 @@ class MusicianPaymentSystem:
                 
                 if missed_official_events > 0:
                     if penalty_criteria == "fixed":
-                        # Option 1: Fixed amount per missed official event
-                        penalty = missed_official_events * fixed_penalty_amount
+                        # Option 1: Fixed amount per missed official event (now supports per-category)
+                        if category_penalties and musician['Categoria'] in category_penalties:
+                            penalty = missed_official_events * category_penalties[musician['Categoria']]
+                        else:
+                            penalty = missed_official_events * fixed_penalty_amount
                         
                     elif penalty_criteria == "average":
                         # Option 2: Average of earnings per attended event
@@ -966,14 +969,79 @@ def show_processing_page(system):
     )
     
     fixed_penalty_amount = 0
+    category_penalties = None
+    
     if penalty_criteria == "fixed":
-        fixed_penalty_amount = st.number_input(
-            "Cantidad a descontar por acto oficial no asistido (€):",
-            min_value=0.0,
-            value=50.0,
-            step=5.0,
-            help="Cantidad fija que se descontará por cada acto oficial al que no haya asistido el músico"
+        penalty_type = st.radio(
+            "Tipo de penalización fija:",
+            options=["uniform", "by_category"],
+            format_func=lambda x: {
+                "uniform": "Cantidad igual para todas las categorías",
+                "by_category": "Cantidad diferente por categoría"
+            }[x],
+            help="Elige si aplicar la misma cantidad a todos o diferente por categoría"
         )
+        
+        if penalty_type == "uniform":
+            fixed_penalty_amount = st.number_input(
+                "Cantidad a descontar por acto oficial no asistido (€):",
+                min_value=0.0,
+                value=50.0,
+                step=5.0,
+                help="Cantidad fija que se descontará por cada acto oficial al que no haya asistido el músico"
+            )
+        else:
+            st.write("**Configurar penalización por categoría:**")
+            category_penalties = {}
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                category_penalties['A'] = st.number_input(
+                    "Categoría A (€):",
+                    min_value=0.0,
+                    value=60.0,
+                    step=5.0,
+                    key="penalty_A"
+                )
+            
+            with col2:
+                category_penalties['B'] = st.number_input(
+                    "Categoría B (€):",
+                    min_value=0.0,
+                    value=55.0,
+                    step=5.0,
+                    key="penalty_B"
+                )
+            
+            with col3:
+                category_penalties['C'] = st.number_input(
+                    "Categoría C (€):",
+                    min_value=0.0,
+                    value=50.0,
+                    step=5.0,
+                    key="penalty_C"
+                )
+            
+            with col4:
+                category_penalties['D'] = st.number_input(
+                    "Categoría D (€):",
+                    min_value=0.0,
+                    value=45.0,
+                    step=5.0,
+                    key="penalty_D"
+                )
+            
+            with col5:
+                category_penalties['E'] = st.number_input(
+                    "Categoría E (€):",
+                    min_value=0.0,
+                    value=40.0,
+                    step=5.0,
+                    key="penalty_E"
+                )
+            
+            st.info(f"💡 Penalizaciones configuradas: A=€{category_penalties['A']}, B=€{category_penalties['B']}, C=€{category_penalties['C']}, D=€{category_penalties['D']}, E=€{category_penalties['E']}")
     elif penalty_criteria == "average":
         st.info("💡 Se calculará automáticamente la media de lo que ha ganado cada músico por acto asistido y se descontará esa cantidad por cada acto oficial no asistido.")
     else:
@@ -983,7 +1051,7 @@ def show_processing_page(system):
     
     if st.button("🔄 Procesar Datos", type="primary"):
         with st.spinner("Procesando datos..."):
-            results = system.process_payments(penalty_criteria, fixed_penalty_amount)
+            results = system.process_payments(penalty_criteria, fixed_penalty_amount, category_penalties)
         
         if results:
             st.success("✅ Datos procesados correctamente!")
