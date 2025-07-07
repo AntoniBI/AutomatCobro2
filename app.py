@@ -37,6 +37,7 @@ class MusicianPaymentSystem:
         self.asistencia_df = None
         self.presupuesto_df = None
         self.configuracion_df = None
+        self.band_retention_df = None
         # Do not auto-load data - let user upload files
     
     def load_data(self):
@@ -55,6 +56,9 @@ class MusicianPaymentSystem:
             # Store original weights for reset functionality
             if 'original_weights' not in st.session_state:
                 st.session_state.original_weights = self.configuracion_df.copy()
+            
+            # Initialize band retention data
+            self._initialize_band_retention()
                 
         except Exception as e:
             st.error(f"Error loading data: {str(e)}")
@@ -103,6 +107,9 @@ class MusicianPaymentSystem:
             
             # Update original weights
             st.session_state.original_weights = self.configuracion_df.copy()
+            
+            # Initialize band retention data
+            self._initialize_band_retention()
             
             # Show data summary
             self._show_data_summary()
@@ -278,6 +285,54 @@ class MusicianPaymentSystem:
             return []
         return [col for col in self.asistencia_df.columns if col not in ['Nombre', 'Apellidos', 'Instrumento', 'Categoria']]
     
+    def _initialize_band_retention(self):
+        """Initialize band retention data structure"""
+        try:
+            events = self.get_events_list()
+            if events:
+                # Create band retention dataframe with default 0% retention
+                self.band_retention_df = pd.DataFrame({
+                    'ACTES': events,
+                    'BANDA_PORCENTAJE': [0.0] * len(events),
+                    'DESCRIPCION': ['Sin retención'] * len(events)
+                })
+                
+                # Store in session state for persistence
+                if 'band_retention_config' not in st.session_state:
+                    st.session_state.band_retention_config = self.band_retention_df.copy()
+                else:
+                    # Update existing config with new events if any
+                    existing_events = set(st.session_state.band_retention_config['ACTES'].values)
+                    new_events = [e for e in events if e not in existing_events]
+                    if new_events:
+                        new_rows = pd.DataFrame({
+                            'ACTES': new_events,
+                            'BANDA_PORCENTAJE': [0.0] * len(new_events),
+                            'DESCRIPCION': ['Sin retención'] * len(new_events)
+                        })
+                        st.session_state.band_retention_config = pd.concat([
+                            st.session_state.band_retention_config, new_rows
+                        ], ignore_index=True)
+                    
+                    self.band_retention_df = st.session_state.band_retention_config.copy()
+                    
+            else:
+                self.band_retention_df = pd.DataFrame(columns=['ACTES', 'BANDA_PORCENTAJE', 'DESCRIPCION'])
+                
+        except Exception as e:
+            st.warning(f"Error inicializando configuración de retención: {str(e)}")
+            self.band_retention_df = pd.DataFrame(columns=['ACTES', 'BANDA_PORCENTAJE', 'DESCRIPCION'])
+    
+    
+    def get_band_retention_for_event(self, event_name):
+        """Get band retention percentage for a specific event"""
+        if self.band_retention_df is None or self.band_retention_df.empty:
+            return 0.0
+        
+        retention_row = self.band_retention_df[self.band_retention_df['ACTES'] == event_name]
+        if not retention_row.empty:
+            return float(retention_row.iloc[0]['BANDA_PORCENTAJE'])
+        return 0.0
     
     def get_musicians_by_category(self, event):
         """Get count and names of musicians by category for an event"""
@@ -316,17 +371,22 @@ class MusicianPaymentSystem:
                     total_attendees = len(event_attendees)
                     
                     if total_attendees > 0:
+                        # Apply band retention first
+                        original_amount = event_row['A REPARTIR']
+                        retention_percentage = self.get_band_retention_for_event(event_name)
+                        net_amount = original_amount * (1 - retention_percentage / 100)
+                        
                         # Get weights for this event
                         weight_row = current_weights[current_weights['ACTES'] == event_name]
                         if not weight_row.empty:
                             weight_row = weight_row.iloc[0]
                             
-                            # Calculate payment for each attendee
+                            # Calculate payment for each attendee using net amount
                             for _, attendee in event_attendees.iterrows():
                                 category = attendee['Categoria']
                                 if category in weight_row:
                                     ponderacion = weight_row[category]
-                                    payment = (event_row['A REPARTIR'] / total_attendees) * ponderacion
+                                    payment = (net_amount / total_attendees) * ponderacion
                                     total_distributed += payment
             
             difference = total_budget - total_distributed
@@ -427,11 +487,23 @@ class MusicianPaymentSystem:
             
             attendees['ponderacion'] = attendees.apply(get_ponderacion, axis=1)
             
-            # 8. Calculate individual payment using correct formula
-            # (row["A REPARTIR"] / row["total_asistentes"]) * row["ponderacion"]
-            attendees['Importe_Individual'] = (attendees['A REPARTIR'] / attendees['total_asistentes']) * attendees['ponderacion']
+            # 8. Apply band retention before calculating individual payments
+            def apply_band_retention(row):
+                event_name = row['Acto']
+                original_amount = row['A REPARTIR']
+                retention_percentage = self.get_band_retention_for_event(event_name)
+                net_amount = original_amount * (1 - retention_percentage / 100)
+                return net_amount
             
-            # 9. Generate total summary per musician
+            attendees['A_REPARTIR_NETO'] = attendees.apply(apply_band_retention, axis=1)
+            attendees['BANDA_RETENCION_PCT'] = attendees['Acto'].apply(lambda x: self.get_band_retention_for_event(x))
+            attendees['BANDA_RETENCION_AMOUNT'] = attendees['A REPARTIR'] - attendees['A_REPARTIR_NETO']
+            
+            # 9. Calculate individual payment using net amount after band retention
+            # (row["A_REPARTIR_NETO"] / row["total_asistentes"]) * row["ponderacion"]
+            attendees['Importe_Individual'] = (attendees['A_REPARTIR_NETO'] / attendees['total_asistentes']) * attendees['ponderacion']
+            
+            # 10. Generate total summary per musician
             musician_summary = attendees.groupby('Musico').agg({
                 'Importe_Individual': 'sum',
                 'Categoria': 'first',
@@ -440,7 +512,7 @@ class MusicianPaymentSystem:
                 'Apellidos': 'first'
             }).reset_index()
             
-            # 10. Create payment pivot by event
+            # 11. Create payment pivot by event
             payment_pivot = attendees.pivot_table(
                 index='Musico',
                 columns='Acto',
@@ -460,13 +532,13 @@ class MusicianPaymentSystem:
             # Reorder ALL columns to match original Excel order
             payment_pivot = payment_pivot.reindex(columns=original_events_order)
             
-            # 11. Create attendance pivot by event
+            # 12. Create attendance pivot by event
             attendance_pivot = self.asistencia_df.set_index(['Nombre', 'Apellidos', 'Instrumento', 'Categoria'])
             
-            # 12. Detect official events (those with "OFICIAL" in name)
+            # 13. Detect official events (those with "OFICIAL" in name)
             official_events = [col for col in self.get_events_list() if 'OFICIAL' in col.upper()]
             
-            # 13. Count missed official events per musician - FIXED INDEX ISSUE
+            # 14. Count missed official events per musician - FIXED INDEX ISSUE
             musician_summary = musician_summary.reset_index(drop=True)
             
             if official_events:
@@ -482,26 +554,34 @@ class MusicianPaymentSystem:
             else:
                 musician_summary['Actos_Oficiales_No_Asistidos'] = 0
             
-            # 14. Apply penalty for missed official events
+            # 15. Apply penalty for missed official events
             if penalty_criteria != "manual":
                 musician_summary = self._apply_official_event_penalties(
                     musician_summary, penalty_criteria, fixed_penalty_amount, category_penalties
                 )
             
-            # 15. Filter musicians with earnings > 0
+            # 16. Filter musicians with earnings > 0
             musician_summary = musician_summary[musician_summary['Importe_Individual'] > 0]
             
-            # 16. Calculate actual distributed amount per event
+            # 17. Calculate actual distributed amount per event
             actual_distributed = attendees.groupby('Acto')['Importe_Individual'].sum().reset_index()
             actual_distributed.columns = ['Acto', 'Distribuido_Real']
             
-            # 17. Compare budget vs actual distribution
+            # 18. Compare budget vs actual distribution (including band retention)
             budget_comparison = self.presupuesto_df.merge(actual_distributed, left_on='ACTES', right_on='Acto', how='left')
             budget_comparison['Distribuido_Real'] = budget_comparison['Distribuido_Real'].fillna(0)
-            budget_comparison['Diferencia'] = budget_comparison['A REPARTIR'] - budget_comparison['Distribuido_Real']
             
-            # 18. Count musicians by category and event
+            # Add band retention information
+            budget_comparison['Banda_Retencion_PCT'] = budget_comparison['ACTES'].apply(lambda x: self.get_band_retention_for_event(x))
+            budget_comparison['Banda_Retencion_Amount'] = budget_comparison['A REPARTIR'] * (budget_comparison['Banda_Retencion_PCT'] / 100)
+            budget_comparison['Neto_Para_Musicos'] = budget_comparison['A REPARTIR'] - budget_comparison['Banda_Retencion_Amount']
+            budget_comparison['Diferencia'] = budget_comparison['Neto_Para_Musicos'] - budget_comparison['Distribuido_Real']
+            
+            # 19. Count musicians by category and event
             musicians_by_category = attendees.groupby(['Acto', 'Categoria']).size().reset_index(name='Cantidad_Musicos')
+            
+            # 20. Calculate total band retention summary
+            total_band_retention = attendees['BANDA_RETENCION_AMOUNT'].sum() if not attendees.empty else 0
             
             return {
                 'musician_summary': musician_summary,
@@ -509,7 +589,8 @@ class MusicianPaymentSystem:
                 'attendance_pivot': attendance_pivot,
                 'budget_comparison': budget_comparison,
                 'musicians_by_category': musicians_by_category,
-                'attendees_detail': attendees
+                'attendees_detail': attendees,
+                'total_band_retention': total_band_retention
             }
             
         except Exception as e:
@@ -625,13 +706,15 @@ def main():
     st.sidebar.subheader("🎵 Navegación")
     page = st.sidebar.selectbox(
         "Selecciona una página:",
-        ["Dashboard Principal", "Editar Ponderaciones", "Análisis por Actos", "Procesar y Descargar"]
+        ["Dashboard Principal", "Editar Ponderaciones", "Configurar Retención Banda", "Análisis por Actos", "Procesar y Descargar"]
     )
     
     if page == "Dashboard Principal":
         show_dashboard(system)
     elif page == "Editar Ponderaciones":
         show_weights_editor(system)
+    elif page == "Configurar Retención Banda":
+        show_band_retention_page(system)
     elif page == "Análisis por Actos":
         show_event_analysis(system)
     elif page == "Procesar y Descargar":
@@ -776,16 +859,29 @@ def show_weights_editor(system):
     
     # Budget comparison table
     st.divider()
-    st.subheader("💰 Comparación Presupuestaria en Tiempo Real")
+    st.subheader("💰 Comparación Presupuestaria en Tiempo Real (Incluye Retención de Banda)")
     
     # Calculate budget comparison with current weights
     try:
-        # Calculate distributed amounts using current weights from session state
+        # Calculate distributed amounts using current weights from session state (with band retention)
         budget_comparison_df = system.presupuesto_df.copy()
+        budget_comparison_df['Banda_Retencion_PCT'] = 0.0
+        budget_comparison_df['Banda_Retencion_Amount'] = 0.0
+        budget_comparison_df['Neto_Para_Musicos'] = budget_comparison_df['A REPARTIR']
         budget_comparison_df['Total Repartido'] = 0.0
         
         for idx, row in budget_comparison_df.iterrows():
             event_name = row['ACTES']
+            
+            # Apply band retention first
+            retention_percentage = system.get_band_retention_for_event(event_name)
+            retention_amount = row['A REPARTIR'] * (retention_percentage / 100)
+            net_amount = row['A REPARTIR'] - retention_amount
+            
+            budget_comparison_df.at[idx, 'Banda_Retencion_PCT'] = retention_percentage
+            budget_comparison_df.at[idx, 'Banda_Retencion_Amount'] = retention_amount
+            budget_comparison_df.at[idx, 'Neto_Para_Musicos'] = net_amount
+            
             if event_name in system.asistencia_df.columns:
                 # Get attendees for this event
                 event_attendees = system.asistencia_df[system.asistencia_df[event_name] == 1]
@@ -800,41 +896,56 @@ def show_weights_editor(system):
                         weight_row = weight_row.iloc[0]
                         total_event_payment = 0
                         
-                        # Calculate payment for each attendee
+                        # Calculate payment for each attendee using NET amount after band retention
                         for _, attendee in event_attendees.iterrows():
                             category = attendee['Categoria']
                             if category in ['A', 'B', 'C', 'D', 'E'] and category in weight_row:
                                 ponderacion = weight_row[category]
-                                payment = (row['A REPARTIR'] / total_attendees) * ponderacion
+                                payment = (net_amount / total_attendees) * ponderacion
                                 total_event_payment += payment
                         
                         budget_comparison_df.at[idx, 'Total Repartido'] = total_event_payment
         
-        # Calculate difference
-        budget_comparison_df['A Repartir - Total Repartido'] = budget_comparison_df['A REPARTIR'] - budget_comparison_df['Total Repartido']
+        # Calculate difference using net amount
+        budget_comparison_df['Diferencia_Neto'] = budget_comparison_df['Neto_Para_Musicos'] - budget_comparison_df['Total Repartido']
         
-        # Display the comparison table
-        display_df = budget_comparison_df[['ACTES', 'A REPARTIR', 'Total Repartido', 'A Repartir - Total Repartido']].copy()
-        display_df['A REPARTIR'] = display_df['A REPARTIR'].round(2)
-        display_df['Total Repartido'] = display_df['Total Repartido'].round(2)
-        display_df['A Repartir - Total Repartido'] = display_df['A Repartir - Total Repartido'].round(2)
+        # Display the comparison table with band retention info
+        display_df = budget_comparison_df[[
+            'ACTES', 'A REPARTIR', 'Banda_Retencion_PCT', 'Banda_Retencion_Amount', 
+            'Neto_Para_Musicos', 'Total Repartido', 'Diferencia_Neto'
+        ]].copy()
+        
+        # Round numeric columns
+        for col in ['A REPARTIR', 'Banda_Retencion_Amount', 'Neto_Para_Musicos', 'Total Repartido', 'Diferencia_Neto']:
+            display_df[col] = display_df[col].round(2)
+        display_df['Banda_Retencion_PCT'] = display_df['Banda_Retencion_PCT'].round(1)
+        
+        # Rename columns for better display
+        display_df.columns = [
+            'Acto', 'Presupuesto Original', 'Retención %', 'Retención €', 
+            'Neto para Músicos', 'Total Repartido', 'Diferencia'
+        ]
         
         st.dataframe(display_df, use_container_width=True)
         
-        # Summary metrics
-        col1, col2, col3 = st.columns(3)
+        # Summary metrics (with band retention)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             total_budget = budget_comparison_df['A REPARTIR'].sum()
             st.metric("Total Presupuesto", f"€{total_budget:,.2f}")
         
         with col2:
-            total_distributed = budget_comparison_df['Total Repartido'].sum()
-            st.metric("Total a Repartir", f"€{total_distributed:,.2f}")
+            total_retention = budget_comparison_df['Banda_Retencion_Amount'].sum()
+            st.metric("Total Retención Banda", f"€{total_retention:,.2f}")
         
         with col3:
-            total_difference = budget_comparison_df['A Repartir - Total Repartido'].sum()
-            st.metric("Diferencia Total", f"€{total_difference:,.2f}", delta=f"{total_difference:,.2f}")
+            total_net = budget_comparison_df['Neto_Para_Musicos'].sum()
+            st.metric("Total Neto Músicos", f"€{total_net:,.2f}")
+        
+        with col4:
+            total_difference = budget_comparison_df['Diferencia_Neto'].sum()
+            st.metric("Diferencia", f"€{total_difference:,.2f}", delta=f"{total_difference:,.2f}")
             
     except Exception as e:
         st.error(f"Error calculando comparación presupuestaria: {str(e)}")
@@ -843,7 +954,7 @@ def show_weights_editor(system):
     
     # Real-time earnings table by category and event
     st.divider()
-    st.subheader("💵 Ganancias por Categoría y Acto (Tiempo Real)")
+    st.subheader("💵 Ganancias por Categoría y Acto (Tiempo Real - Después de Retención)")
     
     try:
         # Calculate earnings by category for each event - SHOW ALL EVENTS
@@ -852,6 +963,11 @@ def show_weights_editor(system):
         
         for _, event_row in system.presupuesto_df.iterrows():
             event_name = event_row['ACTES']
+            
+            # Apply band retention first
+            retention_percentage = system.get_band_retention_for_event(event_name)
+            original_amount = event_row['A REPARTIR']
+            net_amount = original_amount * (1 - retention_percentage / 100)
             
             if event_name in system.asistencia_df.columns:
                 # Get attendees for this event by category
@@ -864,15 +980,20 @@ def show_weights_editor(system):
                 if not weight_row.empty:
                     weight_row = weight_row.iloc[0]
                     
-                    # Calculate earnings for each category - ALWAYS show, even if no attendees
-                    event_earnings = {'Acto': event_name}
+                    # Calculate earnings for each category using NET amount - ALWAYS show, even if no attendees
+                    event_earnings = {
+                        'Acto': event_name,
+                        'Original': f"€{original_amount:.2f}",
+                        'Retención': f"{retention_percentage}%" if retention_percentage > 0 else "0%",
+                        'Neto': f"€{net_amount:.2f}"
+                    }
                     
                     for category in ['A', 'B', 'C', 'D', 'E']:
                         if category in weight_row:
                             if total_attendees > 0:
                                 ponderacion = float(weight_row[category])
-                                # Calculate individual payment for this category
-                                individual_payment = (event_row['A REPARTIR'] / total_attendees) * ponderacion
+                                # Calculate individual payment for this category using NET amount
+                                individual_payment = (net_amount / total_attendees) * ponderacion
                                 event_earnings[category] = f"€{individual_payment:.2f}"
                             else:
                                 # No attendees - show €0.00
@@ -885,15 +1006,182 @@ def show_weights_editor(system):
         if earnings_data:
             earnings_df = pd.DataFrame(earnings_data)
             
-            # Display the simplified earnings table
-            st.write("**Ganancias individuales por categoría según acto**")
+            # Display the earnings table with band retention info
+            st.write("**Ganancias individuales por categoría (después de retención de banda)**")
             st.dataframe(earnings_df, use_container_width=True)
+            
+            # Show explanation
+            st.info("💵 Las ganancias mostradas ya incluyen el descuento por retención de banda configurada para cada acto.")
         else:
             st.info("No hay datos de ganancias para mostrar")
             
     except Exception as e:
         st.error(f"Error calculando ganancias por categoría: {str(e)}")
         st.write("Detalle del error:", e)
+
+def show_band_retention_page(system):
+    """Band retention configuration page"""
+    st.header("🏦 Configurar Retención de Banda")
+    
+    # Check if data is loaded
+    if system.asistencia_df is None or system.presupuesto_df is None or system.configuracion_df is None:
+        st.warning("⚠️ No hay archivo cargado. Por favor, carga un archivo Excel usando el botón en la barra lateral.")
+        st.info("👈 Utiliza el botón 'Cargar Archivo Excel' en la barra lateral para comenzar.")
+        return
+    
+    st.write("""
+    Configura el porcentaje que la banda se quedará de cada acto **antes** de repartir el dinero entre los músicos.
+    
+    **📝 Ejemplo:**
+    - A Repartir: €1,000
+    - Retención Banda: 10%
+    - Cantidad retenida: €100
+    - **Cantidad neta para músicos: €900**
+    """)
+    
+    # Initialize band retention if not exists
+    if 'band_retention_config' not in st.session_state:
+        system._initialize_band_retention()
+    
+    # Get current retention configuration
+    current_config = st.session_state.band_retention_config.copy()
+    
+    st.subheader("📊 Configuración de Retención por Acto")
+    
+    # Create editable dataframe
+    column_config = {
+        "ACTES": st.column_config.TextColumn("Acto", disabled=True, width="large"),
+        "BANDA_PORCENTAJE": st.column_config.NumberColumn(
+            "Retención (%)", 
+            min_value=0.0, 
+            max_value=100.0, 
+            step=0.5, 
+            format="%.1f%%",
+            help="Porcentaje que se queda la banda (0-100%)"
+        ),
+        "DESCRIPCION": st.column_config.TextColumn(
+            "Descripción", 
+            help="Descripción del motivo de la retención",
+            width="medium"
+        )
+    }
+    
+    # Edit retention configuration
+    edited_config = st.data_editor(
+        current_config,
+        use_container_width=True,
+        num_rows="fixed",
+        column_config=column_config,
+        disabled=["ACTES"],
+        key="band_retention_editor"
+    )
+    
+    # Update session state when data changes
+    if not edited_config.equals(current_config):
+        st.session_state.band_retention_config = edited_config.copy()
+        system.band_retention_df = edited_config.copy()
+    
+    # Control buttons
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("💾 Guardar Configuración"):
+            system.band_retention_df = st.session_state.band_retention_config.copy()
+            st.success("Configuración de retención guardada!")
+            st.rerun()
+    
+    with col2:
+        if st.button("🔄 Resetear a 0%"):
+            reset_config = current_config.copy()
+            reset_config['BANDA_PORCENTAJE'] = 0.0
+            reset_config['DESCRIPCION'] = 'Sin retención'
+            st.session_state.band_retention_config = reset_config
+            system.band_retention_df = reset_config.copy()
+            st.success("Configuración reseteada a 0%!")
+            st.rerun()
+    
+    with col3:
+        if st.button("🕰️ Plantilla Rápida"):
+            template_config = current_config.copy()
+            # Set some common percentages
+            for idx, row in template_config.iterrows():
+                if 'OFICIAL' in row['ACTES'].upper():
+                    template_config.at[idx, 'BANDA_PORCENTAJE'] = 0.0
+                    template_config.at[idx, 'DESCRIPCION'] = 'Acto oficial - Sin retención'
+                elif any(word in row['ACTES'].upper() for word in ['NAVIDAD', 'CHRISTMAS', 'CONCIERTO']):
+                    template_config.at[idx, 'BANDA_PORCENTAJE'] = 15.0
+                    template_config.at[idx, 'DESCRIPCION'] = 'Fondo de instrumentos'
+                else:
+                    template_config.at[idx, 'BANDA_PORCENTAJE'] = 10.0
+                    template_config.at[idx, 'DESCRIPCION'] = 'Gastos generales'
+            
+            st.session_state.band_retention_config = template_config
+            system.band_retention_df = template_config.copy()
+            st.success("Plantilla aplicada!")
+            st.rerun()
+    
+    # Preview of financial impact
+    st.divider()
+    st.subheader("💰 Impacto Financiero")
+    
+    try:
+        # Calculate total retention and net distribution
+        total_retention = 0.0
+        total_budget = 0.0
+        retention_breakdown = []
+        
+        current_retention = st.session_state.band_retention_config
+        
+        for _, budget_row in system.presupuesto_df.iterrows():
+            event_name = budget_row['ACTES']
+            budget_amount = budget_row['A REPARTIR']
+            total_budget += budget_amount
+            
+            retention_row = current_retention[current_retention['ACTES'] == event_name]
+            if not retention_row.empty:
+                retention_pct = retention_row.iloc[0]['BANDA_PORCENTAJE']
+                retention_amount = budget_amount * (retention_pct / 100)
+                total_retention += retention_amount
+                
+                if retention_pct > 0:
+                    retention_breakdown.append({
+                        'Acto': event_name,
+                        'Presupuesto': budget_amount,
+                        'Retención %': retention_pct,
+                        'Retención €': retention_amount,
+                        'Neto Músicos': budget_amount - retention_amount
+                    })
+        
+        # Display summary metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Presupuesto", f"€{total_budget:,.2f}")
+        
+        with col2:
+            st.metric("Total Retención Banda", f"€{total_retention:,.2f}")
+        
+        with col3:
+            net_for_musicians = total_budget - total_retention
+            st.metric("Neto para Músicos", f"€{net_for_musicians:,.2f}")
+        
+        # Show detailed breakdown if there are retentions
+        if retention_breakdown:
+            st.write("**Desglose de Retenciones:**")
+            breakdown_df = pd.DataFrame(retention_breakdown)
+            
+            # Format the dataframe for display
+            breakdown_df['Presupuesto'] = breakdown_df['Presupuesto'].apply(lambda x: f"€{x:,.2f}")
+            breakdown_df['Retención %'] = breakdown_df['Retención %'].apply(lambda x: f"{x}%")
+            breakdown_df['Retención €'] = breakdown_df['Retención €'].apply(lambda x: f"€{x:,.2f}")
+            breakdown_df['Neto Músicos'] = breakdown_df['Neto Músicos'].apply(lambda x: f"€{x:,.2f}")
+            
+            st.dataframe(breakdown_df, use_container_width=True)
+        else:
+            st.info("💵 No hay retenciones configuradas - Todo el presupuesto se repartirá entre los músicos.")
+            
+    except Exception as e:
+        st.error(f"Error calculando impacto financiero: {str(e)}")
 
 def show_event_analysis(system):
     """Event analysis page"""
@@ -1059,7 +1347,7 @@ def show_processing_page(system):
             # Show summary
             st.subheader("📋 Resumen de Resultados")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.metric("Músicos con Ganancias", len(results['musician_summary']))
@@ -1074,6 +1362,10 @@ def show_processing_page(system):
                     st.metric("Total Distribuido", f"€{total_distributed:,.2f}")
             
             with col3:
+                total_band_retention = results.get('total_band_retention', 0)
+                st.metric("Retención Banda", f"€{total_band_retention:,.2f}")
+            
+            with col4:
                 if 'Importe_Final' in results['musician_summary'].columns:
                     avg_payment = results['musician_summary']['Importe_Final'].mean()
                     st.metric("Pago Final Promedio", f"€{avg_payment:,.2f}")
@@ -1100,7 +1392,7 @@ def show_processing_page(system):
                         st.metric("Penalización Promedio", f"€{avg_penalty:,.2f}")
             
             # Show detailed results
-            tab1, tab2, tab3 = st.tabs(["💰 Resumen por Músico", "📊 Comparación Presupuesto", "👥 Músicos por Categoría"])
+            tab1, tab2, tab3, tab4 = st.tabs(["💰 Resumen por Músico", "📊 Comparación Presupuesto", "👥 Músicos por Categoría", "🏦 Retención Banda"])
             
             with tab1:
                 st.dataframe(results['musician_summary'], use_container_width=True)
@@ -1110,6 +1402,29 @@ def show_processing_page(system):
             
             with tab3:
                 st.dataframe(results['musicians_by_category'], use_container_width=True)
+            
+            with tab4:
+                st.write("**Detalle de Retención por Acto:**")
+                if 'attendees_detail' in results and not results['attendees_detail'].empty:
+                    retention_detail = results['attendees_detail'][[
+                        'Acto', 'A REPARTIR', 'BANDA_RETENCION_PCT', 
+                        'BANDA_RETENCION_AMOUNT', 'A_REPARTIR_NETO'
+                    ]].drop_duplicates('Acto').copy()
+                    
+                    # Format for display
+                    retention_detail['A REPARTIR'] = retention_detail['A REPARTIR'].apply(lambda x: f"€{x:,.2f}")
+                    retention_detail['BANDA_RETENCION_PCT'] = retention_detail['BANDA_RETENCION_PCT'].apply(lambda x: f"{x}%")
+                    retention_detail['BANDA_RETENCION_AMOUNT'] = retention_detail['BANDA_RETENCION_AMOUNT'].apply(lambda x: f"€{x:,.2f}")
+                    retention_detail['A_REPARTIR_NETO'] = retention_detail['A_REPARTIR_NETO'].apply(lambda x: f"€{x:,.2f}")
+                    
+                    retention_detail.columns = ['Acto', 'Presupuesto Original', 'Retención %', 'Retención €', 'Neto para Músicos']
+                    st.dataframe(retention_detail, use_container_width=True)
+                    
+                    # Summary
+                    total_retention = results.get('total_band_retention', 0)
+                    st.metric("Total Retención de Banda", f"€{total_retention:,.2f}")
+                else:
+                    st.info("No hay datos de retención para mostrar.")
             
             # Download functionality
             st.subheader("📥 Descargar Resultados")
@@ -1216,10 +1531,10 @@ def create_excel_export(results, system):
             except Exception as e:
                 st.warning(f"Error creando pivot de pagos: {e}")
             
-            # 4. Format budget comparison
+            # 4. Format budget comparison (now includes band retention)
             try:
                 budget_comparison = results['budget_comparison'].copy()
-                for col in ['A REPARTIR', 'Distribuido_Real', 'Diferencia']:
+                for col in ['A REPARTIR', 'Distribuido_Real', 'Diferencia', 'Banda_Retencion_Amount', 'Neto_Para_Musicos']:
                     if col in budget_comparison.columns:
                         budget_comparison[col] = budget_comparison[col].round(2)
                 
@@ -1228,7 +1543,7 @@ def create_excel_export(results, system):
                 worksheet = writer.sheets['Comparacion_Presupuesto']
                 # Format money columns
                 for col_num, col_name in enumerate(budget_comparison.columns):
-                    if any(word in col_name.upper() for word in ['REPARTIR', 'DISTRIBUIDO', 'DIFERENCIA']):
+                    if any(word in col_name.upper() for word in ['REPARTIR', 'DISTRIBUIDO', 'DIFERENCIA', 'RETENCION', 'NETO']):
                         worksheet.set_column(col_num, col_num, 15, money_format)
                     worksheet.write(0, col_num, col_name, header_format)
             except Exception as e:
