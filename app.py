@@ -352,8 +352,8 @@ class MusicianPaymentSystem:
             if self.asistencia_df is None or self.presupuesto_df is None or self.configuracion_df is None:
                 return 0, 0, 0
                 
-            # Get current weights from session state or use default
-            current_weights = getattr(self, 'configuracion_df', st.session_state.get('original_weights', pd.DataFrame()))
+            # Get current weights from session state (editing_weights) for real-time updates
+            current_weights = st.session_state.get('editing_weights', getattr(self, 'configuracion_df', st.session_state.get('original_weights', pd.DataFrame())))
             
             if current_weights.empty:
                 return 0, 0, 0
@@ -812,15 +812,19 @@ def show_weights_editor(system):
     # Initialize editing state in session if not exists
     if 'editing_weights' not in st.session_state:
         st.session_state.editing_weights = system.configuracion_df.copy()
+        # Ensure proper data types for all category columns
+        for col in ['A', 'B', 'C', 'D', 'E']:
+            if col in st.session_state.editing_weights.columns:
+                st.session_state.editing_weights[col] = st.session_state.editing_weights[col].astype(float)
     
     # Create editable dataframe with custom column configuration
     column_config = {
         "ACTES": st.column_config.TextColumn("Acto", disabled=True),
-        "A": st.column_config.NumberColumn("A", min_value=0.0, max_value=10.0, step=0.1, format="%.2f"),
-        "B": st.column_config.NumberColumn("B", min_value=0.0, max_value=10.0, step=0.1, format="%.2f"),
-        "C": st.column_config.NumberColumn("C", min_value=0.0, max_value=10.0, step=0.1, format="%.2f"),
-        "D": st.column_config.NumberColumn("D", min_value=0.0, max_value=10.0, step=0.1, format="%.2f"),
-        "E": st.column_config.NumberColumn("E", min_value=0.0, max_value=10.0, step=0.1, format="%.2f")
+        "A": st.column_config.NumberColumn("A", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
+        "B": st.column_config.NumberColumn("B", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
+        "C": st.column_config.NumberColumn("C", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
+        "D": st.column_config.NumberColumn("D", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
+        "E": st.column_config.NumberColumn("E", min_value=0.0, max_value=10.0, step=0.001, format="%.3f")
     }
     
     # Use session state data for consistent editing experience
@@ -833,9 +837,21 @@ def show_weights_editor(system):
         key="ponderaciones_editor"
     )
     
-    # Update session state immediately when data changes
-    if not edited_df.equals(st.session_state.editing_weights):
-        st.session_state.editing_weights = edited_df.copy()
+    # Update session state immediately when data changes and force recalculation
+    # Always update to ensure real-time functionality works correctly
+    # Ensure proper data types before updating
+    for col in ['A', 'B', 'C', 'D', 'E']:
+        if col in edited_df.columns:
+            edited_df[col] = edited_df[col].astype(float)
+    
+    st.session_state.editing_weights = edited_df.copy()
+    # Force immediate update of the system configuration for real-time calculations
+    system.configuracion_df = edited_df.copy()
+    
+    # Optional debug info (remove comment to debug)
+    # st.write("🔍 DEBUG - Valores actuales guardados:")
+    # debug_df = edited_df[['ACTES', 'A', 'B', 'C', 'D', 'E']].head(3)
+    # st.dataframe(debug_df)
     
     col1, col2, col3 = st.columns(3)
     
@@ -891,6 +907,11 @@ def show_weights_editor(system):
                     # Get weights for this event from session state
                     current_weights = st.session_state.editing_weights
                     weight_row = current_weights[current_weights['ACTES'] == event_name]
+                    
+                    # Optional debug (remove comment to debug)
+                    # if not weight_row.empty:
+                    #     st.write(f"🔍 DEBUG Tabla 1 - Evento: {event_name}")
+                    #     st.write(f"   Pesos: A={weight_row.iloc[0]['A']}, B={weight_row.iloc[0]['B']}, C={weight_row.iloc[0]['C']}")
                     
                     if not weight_row.empty:
                         weight_row = weight_row.iloc[0]
@@ -976,6 +997,11 @@ def show_weights_editor(system):
                 
                 # Get weights for this event
                 weight_row = current_weights[current_weights['ACTES'] == event_name]
+                
+                # Optional debug (remove comment to debug)
+                # if not weight_row.empty:
+                #     st.write(f"🔍 DEBUG Tabla 2 - Evento: {event_name}")
+                #     st.write(f"   Pesos: A={weight_row.iloc[0]['A']}, B={weight_row.iloc[0]['B']}, C={weight_row.iloc[0]['C']}")
                 
                 if not weight_row.empty:
                     weight_row = weight_row.iloc[0]
