@@ -4,6 +4,7 @@ import numpy as np
 from io import BytesIO
 import plotly.express as px
 import plotly.graph_objects as go
+from Igualar_Precios import calcular_presupuestos_iguales
 
 # Configure Streamlit page
 st.set_page_config(
@@ -869,9 +870,91 @@ def show_weights_editor(system):
             st.rerun()
     
     with col3:
-        if st.button("👀 Vista Previa"):
-            st.write("Vista previa de las ponderaciones:")
             st.dataframe(st.session_state.editing_weights)
+    
+    # NEW: Equalize Prices Section
+    st.divider()
+    st.subheader("⚖️ Igualar Presupuestos")
+    st.write("Calcula y ajusta los presupuestos automáticamente para que el *precio unitario ponderado* sea igual en los actos seleccionados.")
+    
+    with st.expander("🛠️ Configurar Igualación", expanded=False):
+        # 1. Select events
+        all_events = system.get_events_list()
+        selected_events_eq = st.multiselect(
+            "Selecciona los actos a igualar:",
+            options=all_events,
+            default=[] # Default to none to avoid accidental massive changes
+        )
+        
+        # 2. Select Total Budget for these events
+        # Default value: sum of current budgets for selected events
+        default_budget_sum = 0.0
+        if selected_events_eq:
+            current_budgets = system.presupuesto_df[system.presupuesto_df['ACTES'].isin(selected_events_eq)]
+            default_budget_sum = current_budgets['A REPARTIR'].sum()
+        
+        target_total_budget = st.number_input(
+            "Presupuesto Total a repartir entre estos actos (€):",
+            min_value=0.0,
+            value=float(default_budget_sum),
+            step=100.0,
+            format="%.2f"
+        )
+        
+        if st.button("🚀 Calcular y Aplicar Nuevos Presupuestos"):
+            if not selected_events_eq:
+                st.warning("⚠️ Selecciona al menos un acto.")
+            else:
+                try:
+                    # Prepare arguments for calculation
+                    # 1. df_asistencia: system.asistencia_df
+                    # 2. df_ponderaciones: need ACTES as index
+                    df_pond_for_calc = st.session_state.editing_weights.copy()
+                    if 'ACTES' in df_pond_for_calc.columns:
+                        df_pond_for_calc.set_index('ACTES', inplace=True)
+                    
+                    # 3. Categorias: A, B, C, D, E (columns present)
+                    cats = ['A', 'B', 'C', 'D', 'E']
+                    
+                    # Run calculation
+                    new_budgets, valor_unitario = calcular_presupuestos_iguales(
+                        df_asistencia=system.asistencia_df,
+                        df_ponderaciones=df_pond_for_calc,
+                        eventos=selected_events_eq,
+                        categorias=cats,
+                        presupuesto_total_max=target_total_budget,
+                        categoria_col="Categoria"
+                    )
+                    
+                    # Update system.presupuesto_df
+                    changes_log = []
+                    for event, new_amount in new_budgets.items():
+                        # Find row in budget df
+                        mask = system.presupuesto_df['ACTES'] == event
+                        if mask.any():
+                            old_amount = system.presupuesto_df.loc[mask, 'A REPARTIR'].values[0]
+                            system.presupuesto_df.loc[mask, 'A REPARTIR'] = new_amount
+                            changes_log.append({
+                                "Acto": event,
+                                "Anterior": old_amount,
+                                "Nuevo": new_amount,
+                                "Cambio": new_amount - old_amount
+                            })
+                    
+                    st.success(f"✅ Presupuestos actualizados con éxito! Valor unitario común: €{valor_unitario:.4f}")
+                    
+                    # Show changes
+                    if changes_log:
+                        st.write("Resumen de cambios:")
+                        changes_df = pd.DataFrame(changes_log)
+                        st.dataframe(changes_df.style.format({
+                            "Anterior": "€{:.2f}", 
+                            "Nuevo": "€{:.2f}", 
+                            "Cambio": "€{:.2f}"
+                        }))
+                        
+                except Exception as e:
+                    st.error(f"Error al calcular: {str(e)}")
     
     # Budget comparison table
     st.divider()
