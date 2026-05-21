@@ -800,214 +800,136 @@ def show_dashboard(system):
 def show_weights_editor(system):
     """Weights editing page"""
     st.header("⚖️ Editar Ponderaciones")
-    
+
     # Check if data is loaded
     if system.asistencia_df is None or system.presupuesto_df is None or system.configuracion_df is None:
         st.warning("⚠️ No hay archivo cargado. Por favor, carga un archivo Excel usando el botón en la barra lateral.")
         st.info("👈 Utiliza el botón 'Cargar Archivo Excel' en la barra lateral para comenzar.")
         return
-    
-    st.subheader("⚖️ Ponderaciones por Categoría")
-    st.write("Edita las ponderaciones por categoría para cada acto:")
-    
+
+    st.caption(
+        "Edita las ponderaciones por categoría. Los cambios se aplican en tiempo real "
+        "y se reflejan en el resumen y la vista previa."
+    )
+
+    # Persistent result from the auto-A calculator (survives reruns)
+    if 'last_auto_pond_result' not in st.session_state:
+        st.session_state.last_auto_pond_result = None
+
     # Initialize editing state in session if not exists
     if 'editing_weights' not in st.session_state:
         st.session_state.editing_weights = system.configuracion_df.copy()
-        # Ensure proper data types for all category columns
         for col in ['A', 'B', 'C', 'D', 'E']:
             if col in st.session_state.editing_weights.columns:
                 st.session_state.editing_weights[col] = st.session_state.editing_weights[col].astype(float)
-    
-    # Create editable dataframe with custom column configuration
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 1) Top metrics — filled at the bottom once we've computed the comparison
+    # ─────────────────────────────────────────────────────────────────────
+    metrics_container = st.container()
+
+    st.divider()
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 2) Weights editor
+    # ─────────────────────────────────────────────────────────────────────
+    st.subheader("📋 Tabla de ponderaciones")
+
     column_config = {
         "ACTES": st.column_config.TextColumn("Acto", disabled=True),
         "A": st.column_config.NumberColumn("A", min_value=0.0, max_value=10.0, step=0.0001, format="%.4f"),
         "B": st.column_config.NumberColumn("B", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
         "C": st.column_config.NumberColumn("C", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
         "D": st.column_config.NumberColumn("D", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
-        "E": st.column_config.NumberColumn("E", min_value=0.0, max_value=10.0, step=0.001, format="%.3f")
+        "E": st.column_config.NumberColumn("E", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
     }
-    
-    # Use session state data for consistent editing experience
+
     edited_df = st.data_editor(
         st.session_state.editing_weights,
         use_container_width=True,
         num_rows="fixed",
         column_config=column_config,
         disabled=["ACTES"],
-        key="ponderaciones_editor"
+        key="ponderaciones_editor",
     )
-    
-    # Update session state immediately when data changes and force recalculation
-    # Always update to ensure real-time functionality works correctly
-    # Ensure proper data types before updating
+
     for col in ['A', 'B', 'C', 'D', 'E']:
         if col in edited_df.columns:
             edited_df[col] = edited_df[col].astype(float)
-    
     st.session_state.editing_weights = edited_df.copy()
-    # Force immediate update of the system configuration for real-time calculations
     system.configuracion_df = edited_df.copy()
-    
-    # Optional debug info (remove comment to debug)
-    # st.write("🔍 DEBUG - Valores actuales guardados:")
-    # debug_df = edited_df[['ACTES', 'A', 'B', 'C', 'D', 'E']].head(3)
-    # st.dataframe(debug_df)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("💾 Guardar Cambios"):
+
+    col_save, col_restore, _ = st.columns([1, 1, 3])
+    with col_save:
+        if st.button("💾 Guardar cambios", use_container_width=True):
             system.configuracion_df = st.session_state.editing_weights.copy()
-            st.success("Ponderaciones actualizadas correctamente!")
+            st.success("Ponderaciones guardadas correctamente.")
             st.rerun()
-    
-    with col2:
-        if st.button("🔄 Restaurar Original"):
+    with col_restore:
+        if st.button("🔄 Restaurar original", use_container_width=True):
             st.session_state.editing_weights = st.session_state.original_weights.copy()
             system.configuracion_df = st.session_state.original_weights.copy()
-            st.success("Ponderaciones restauradas!")
+            st.session_state.last_auto_pond_result = None
+            st.success("Ponderaciones restauradas.")
             st.rerun()
-    
-    with col3:
-            st.dataframe(st.session_state.editing_weights)
-    
-    # NEW: Equalize Prices Section
-    st.divider()
-    st.subheader("⚖️ Igualar Presupuestos")
-    st.write("Calcula y ajusta los presupuestos automáticamente para que el *precio unitario ponderado* sea igual en los actos seleccionados.")
-    
-    with st.expander("🛠️ Configurar Igualación", expanded=False):
-        # 1. Select events
-        all_events = system.get_events_list()
-        selected_events_eq = st.multiselect(
-            "Selecciona los actos a igualar:",
-            options=all_events,
-            default=[] # Default to none to avoid accidental massive changes
-        )
-        
-        # 2. Select Total Budget for these events
-        # Default value: sum of current budgets for selected events
-        default_budget_sum = 0.0
-        if selected_events_eq:
-            current_budgets = system.presupuesto_df[system.presupuesto_df['ACTES'].isin(selected_events_eq)]
-            default_budget_sum = current_budgets['A REPARTIR'].sum()
-        
-        target_total_budget = st.number_input(
-            "Presupuesto Total a repartir entre estos actos (€):",
-            min_value=0.0,
-            value=float(default_budget_sum),
-            step=100.0,
-            format="%.2f"
-        )
-        
-        if st.button("🚀 Calcular y Aplicar Nuevos Presupuestos"):
-            if not selected_events_eq:
-                st.warning("⚠️ Selecciona al menos un acto.")
-            else:
-                try:
-                    # Prepare arguments for calculation
-                    # 1. df_asistencia: system.asistencia_df
-                    # 2. df_ponderaciones: need ACTES as index
-                    df_pond_for_calc = st.session_state.editing_weights.copy()
-                    if 'ACTES' in df_pond_for_calc.columns:
-                        df_pond_for_calc.set_index('ACTES', inplace=True)
-                    
-                    # 3. Categorias: A, B, C, D, E (columns present)
-                    cats = ['A', 'B', 'C', 'D', 'E']
-                    
-                    # Run calculation
-                    new_budgets, valor_unitario = calcular_presupuestos_iguales(
-                        df_asistencia=system.asistencia_df,
-                        df_ponderaciones=df_pond_for_calc,
-                        eventos=selected_events_eq,
-                        categorias=cats,
-                        presupuesto_total_max=target_total_budget,
-                        categoria_col="Categoria"
-                    )
-                    
-                    # Update system.presupuesto_df
-                    changes_log = []
-                    for event, new_amount in new_budgets.items():
-                        # Find row in budget df
-                        mask = system.presupuesto_df['ACTES'] == event
-                        if mask.any():
-                            old_amount = system.presupuesto_df.loc[mask, 'A REPARTIR'].values[0]
-                            system.presupuesto_df.loc[mask, 'A REPARTIR'] = new_amount
-                            changes_log.append({
-                                "Acto": event,
-                                "Anterior": old_amount,
-                                "Nuevo": new_amount,
-                                "Cambio": new_amount - old_amount
-                            })
-                    
-                    st.success(f"✅ Presupuestos actualizados con éxito! Valor unitario común: €{valor_unitario:.4f}")
-                    
-                    # Show changes
-                    if changes_log:
-                        st.write("Resumen de cambios:")
-                        changes_df = pd.DataFrame(changes_log)
-                        st.dataframe(changes_df.style.format({
-                            "Anterior": "€{:.2f}", 
-                            "Nuevo": "€{:.2f}", 
-                            "Cambio": "€{:.2f}"
-                        }))
-                        
-                except Exception as e:
-                    st.error(f"Error al calcular: {str(e)}")
 
-    # NEW: Automatic A weight calculation
     st.divider()
-    st.subheader("🎯 Cálculo Automático de Ponderación A")
-    st.write(
-        "Calcula la ponderación **A** automáticamente para que "
-        "**Total Repartido = Neto para Músicos** (diferencia ≥ 0 garantizada)."
-    )
-    st.caption(
-        "Reglas: C=0.700, D=0.600, E=0.500 fijos · B se conserva · "
-        "A se trunca hacia abajo a los decimales indicados · "
-        "Actos oficiales (todo a 0) se omiten."
-    )
 
-    with st.expander("🛠️ Calcular A automáticamente", expanded=False):
-        # Build event list (exclude official events: all 5 weights = 0)
+    # ─────────────────────────────────────────────────────────────────────
+    # 3) Automatic tools (tabs)
+    # ─────────────────────────────────────────────────────────────────────
+    st.subheader("🛠️ Herramientas automáticas")
+
+    tab_auto_a, tab_eq = st.tabs([
+        "🎯 Ponderación A automática",
+        "⚖️ Igualar presupuestos",
+    ])
+
+    # ---- Tab: Auto-A calculator -----------------------------------------
+    with tab_auto_a:
+        st.markdown(
+            "Calcula la ponderación **A** automáticamente para que "
+            "**Total Repartido = Neto para Músicos**.  \n"
+            "*Reglas:* C=0.700 · D=0.600 · E=0.500 fijos · B se conserva · "
+            "A se trunca hacia abajo · diff ≥ 0 garantizado · actos oficiales se omiten."
+        )
+
         weights_df = st.session_state.editing_weights
         cat_cols = ['A', 'B', 'C', 'D', 'E']
         non_official_mask = (weights_df[cat_cols].fillna(0).sum(axis=1) > 0)
         non_official_events = weights_df.loc[non_official_mask, 'ACTES'].tolist()
 
-        decimales_pond = st.slider(
-            "Decimales de la ponderación A (más decimales = menor diferencia en €):",
-            min_value=2, max_value=6, value=4, step=1,
-            help=(
-                "El truncamiento hacia abajo asegura que la diferencia (Neto − Total "
-                "Repartido) sea ≥ 0. Con 4 decimales el margen suele ser < €0.10 por acto."
-            ),
-        )
-
-        col_a, col_b = st.columns([2, 1])
-        with col_a:
+        col_dec, col_evt = st.columns([1, 2])
+        with col_dec:
+            decimales_pond = st.slider(
+                "Decimales de A",
+                min_value=2, max_value=6, value=4, step=1,
+                help=(
+                    "Más decimales → menor diferencia residual en €. "
+                    "Con 4 decimales suele quedar < €0.10/acto; con 6, < €0.01."
+                ),
+            )
+        with col_evt:
             evento_individual = st.selectbox(
-                "Selecciona un acto para recalcular:",
+                "Acto individual (opcional)",
                 options=["— (ninguno) —"] + non_official_events,
                 index=0,
                 key="auto_pond_evento_individual",
             )
-        with col_b:
-            st.write("")
-            st.write("")
+
+        col_btn_uno, col_btn_todos = st.columns([1, 1])
+        with col_btn_uno:
             recalcular_uno = st.button(
-                "🔧 Recalcular ESTE acto",
+                "🔧 Recalcular este acto",
                 use_container_width=True,
                 disabled=(evento_individual == "— (ninguno) —"),
             )
-
-        st.write("")
-        recalcular_todos = st.button(
-            "🚀 Recalcular A en TODOS los actos no oficiales",
-            use_container_width=True,
-            type="primary",
-        )
+        with col_btn_todos:
+            recalcular_todos = st.button(
+                "🚀 Recalcular TODOS los no oficiales",
+                use_container_width=True,
+                type="primary",
+            )
 
         def _aplicar_auto_pond(eventos_a_recalcular):
             df_pond_idx = st.session_state.editing_weights.copy().set_index('ACTES')
@@ -1034,7 +956,6 @@ def show_weights_editor(system):
                     df_new.loc[mask, 'D'] = info["D"]
                     df_new.loc[mask, 'E'] = info["E"]
 
-                    # Calculate diff in € using current budget and band retention
                     a_repartir = 0.0
                     bp_row = system.presupuesto_df[system.presupuesto_df['ACTES'] == evento]
                     if not bp_row.empty:
@@ -1056,7 +977,6 @@ def show_weights_editor(system):
                         "Acto": evento,
                         "A anterior": info["A_anterior"],
                         "A nuevo": info["A_nuevo"],
-                        "A exacto (sin truncar)": info["A_exacto"],
                         "B": info["B"],
                         "Asistentes": info["N_total"],
                         "Neto (€)": neto,
@@ -1064,42 +984,22 @@ def show_weights_editor(system):
                         "Diff (€)": diff_eur,
                     })
 
-            # Persist
             for c in cat_cols:
                 df_new[c] = df_new[c].astype(float)
             st.session_state.editing_weights = df_new
             system.configuracion_df = df_new.copy()
             return cambios, saltados
 
-        fmt_pond = "{:." + str(decimales_pond) + "f}"
-        tabla_fmt = {
-            "A anterior": fmt_pond,
-            "A nuevo": fmt_pond,
-            "A exacto (sin truncar)": "{:.8f}",
-            "B": "{:.4f}",
-            "Neto (€)": "€{:,.2f}",
-            "Total Repartido (€)": "€{:,.2f}",
-            "Diff (€)": "€{:,.4f}",
-        }
-
         if recalcular_uno and evento_individual != "— (ninguno) —":
             try:
                 cambios, saltados = _aplicar_auto_pond([evento_individual])
-                if cambios:
-                    c = cambios[0]
-                    st.success(
-                        f"✅ Ponderación A recalculada para «{evento_individual}»: "
-                        f"{c['A anterior']:.{decimales_pond}f} → "
-                        f"{c['A nuevo']:.{decimales_pond}f} · "
-                        f"Diff = €{c['Diff (€)']:.4f}"
-                    )
-                    st.dataframe(
-                        pd.DataFrame(cambios).style.format(tabla_fmt),
-                        use_container_width=True,
-                    )
-                if saltados:
-                    st.warning("⚠️ Actos no procesados:")
-                    st.dataframe(pd.DataFrame(saltados), use_container_width=True)
+                st.session_state.last_auto_pond_result = {
+                    "mode": "individual",
+                    "evento": evento_individual,
+                    "cambios": cambios,
+                    "saltados": saltados,
+                    "decimales": decimales_pond,
+                }
                 st.rerun()
             except Exception as e:
                 st.error(f"Error al recalcular: {str(e)}")
@@ -1107,196 +1007,305 @@ def show_weights_editor(system):
         if recalcular_todos:
             try:
                 cambios, saltados = _aplicar_auto_pond(non_official_events)
-                if cambios:
-                    df_cambios = pd.DataFrame(cambios)
-                    diff_total = df_cambios["Diff (€)"].sum()
-                    diff_max = df_cambios["Diff (€)"].max()
-                    st.success(
-                        f"✅ Ponderación A recalculada en {len(cambios)} actos · "
-                        f"Diff total = €{diff_total:,.2f} · Diff máx por acto = €{diff_max:,.4f}"
-                    )
-                    st.dataframe(
-                        df_cambios.style.format(tabla_fmt),
-                        use_container_width=True,
-                    )
-                if saltados:
-                    st.warning(f"⚠️ {len(saltados)} acto(s) no procesado(s):")
-                    st.dataframe(pd.DataFrame(saltados), use_container_width=True)
+                st.session_state.last_auto_pond_result = {
+                    "mode": "todos",
+                    "evento": None,
+                    "cambios": cambios,
+                    "saltados": saltados,
+                    "decimales": decimales_pond,
+                }
                 st.rerun()
             except Exception as e:
                 st.error(f"Error al recalcular: {str(e)}")
 
-    # Budget comparison table
+        # Persistent result panel
+        res = st.session_state.last_auto_pond_result
+        if res and (res["cambios"] or res["saltados"]):
+            st.markdown("##### 📊 Último resultado")
+            d = res["decimales"]
+            fmt_pond = "{:." + str(d) + "f}"
+            tabla_fmt = {
+                "A anterior": fmt_pond,
+                "A nuevo": fmt_pond,
+                "B": "{:.4f}",
+                "Neto (€)": "€{:,.2f}",
+                "Total Repartido (€)": "€{:,.2f}",
+                "Diff (€)": "€{:,.4f}",
+            }
+            cambios = res["cambios"]
+            if cambios:
+                df_cambios = pd.DataFrame(cambios)
+                diff_total = df_cambios["Diff (€)"].sum()
+                diff_max = df_cambios["Diff (€)"].max()
+                if res["mode"] == "individual":
+                    c0 = cambios[0]
+                    st.success(
+                        f"✅ «{res['evento']}» — A: {c0['A anterior']:.{d}f} → "
+                        f"{c0['A nuevo']:.{d}f} · Diff = €{c0['Diff (€)']:.4f}"
+                    )
+                else:
+                    st.success(
+                        f"✅ {len(cambios)} acto(s) recalculados · "
+                        f"Diff total = €{diff_total:,.4f} · "
+                        f"Diff máx/acto = €{diff_max:,.4f}"
+                    )
+                st.dataframe(
+                    df_cambios.style.format(tabla_fmt),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            if res["saltados"]:
+                with st.expander(f"⚠️ {len(res['saltados'])} acto(s) no procesado(s)"):
+                    st.dataframe(pd.DataFrame(res["saltados"]), use_container_width=True, hide_index=True)
+
+            if st.button("Ocultar resultado", key="dismiss_auto_pond_result"):
+                st.session_state.last_auto_pond_result = None
+                st.rerun()
+
+    # ---- Tab: Equalize budgets ------------------------------------------
+    with tab_eq:
+        st.markdown(
+            "Ajusta los **presupuestos** automáticamente para que el *precio unitario "
+            "ponderado* sea igual en los actos seleccionados."
+        )
+
+        all_events = system.get_events_list()
+        selected_events_eq = st.multiselect(
+            "Actos a igualar",
+            options=all_events,
+            default=[],
+        )
+
+        default_budget_sum = 0.0
+        if selected_events_eq:
+            current_budgets = system.presupuesto_df[system.presupuesto_df['ACTES'].isin(selected_events_eq)]
+            default_budget_sum = float(current_budgets['A REPARTIR'].sum())
+
+        target_total_budget = st.number_input(
+            "Presupuesto total a repartir (€)",
+            min_value=0.0,
+            value=default_budget_sum,
+            step=100.0,
+            format="%.2f",
+        )
+
+        if st.button("🚀 Calcular y aplicar nuevos presupuestos", type="primary", use_container_width=True):
+            if not selected_events_eq:
+                st.warning("⚠️ Selecciona al menos un acto.")
+            else:
+                try:
+                    df_pond_for_calc = st.session_state.editing_weights.copy()
+                    if 'ACTES' in df_pond_for_calc.columns:
+                        df_pond_for_calc.set_index('ACTES', inplace=True)
+
+                    new_budgets, valor_unitario = calcular_presupuestos_iguales(
+                        df_asistencia=system.asistencia_df,
+                        df_ponderaciones=df_pond_for_calc,
+                        eventos=selected_events_eq,
+                        categorias=['A', 'B', 'C', 'D', 'E'],
+                        presupuesto_total_max=target_total_budget,
+                        categoria_col="Categoria",
+                    )
+
+                    changes_log = []
+                    for event, new_amount in new_budgets.items():
+                        mask = system.presupuesto_df['ACTES'] == event
+                        if mask.any():
+                            old_amount = system.presupuesto_df.loc[mask, 'A REPARTIR'].values[0]
+                            system.presupuesto_df.loc[mask, 'A REPARTIR'] = new_amount
+                            changes_log.append({
+                                "Acto": event,
+                                "Anterior": old_amount,
+                                "Nuevo": new_amount,
+                                "Cambio": new_amount - old_amount,
+                            })
+
+                    st.success(
+                        f"✅ Presupuestos actualizados · Valor unitario común: €{valor_unitario:.4f}"
+                    )
+
+                    if changes_log:
+                        st.dataframe(
+                            pd.DataFrame(changes_log).style.format({
+                                "Anterior": "€{:,.2f}",
+                                "Nuevo": "€{:,.2f}",
+                                "Cambio": "€{:,.2f}",
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                except Exception as e:
+                    st.error(f"Error al calcular: {str(e)}")
+
     st.divider()
-    st.subheader("💰 Comparación Presupuestaria en Tiempo Real (Incluye Retención de Banda)")
-    
-    # Calculate budget comparison with current weights
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 4) Preview (tabs)
+    # ─────────────────────────────────────────────────────────────────────
+    st.subheader("👁️ Vista previa en tiempo real")
+    st.caption("Incluye la retención de banda configurada para cada acto.")
+
+    tab_comp, tab_earnings = st.tabs([
+        "💰 Comparación presupuestaria",
+        "💵 Ganancias por categoría",
+    ])
+
+    # Compute budget comparison ONCE — used by both the comparison tab and the top metrics
+    budget_comparison_df = None
     try:
-        # Calculate distributed amounts using current weights from session state (with band retention)
         budget_comparison_df = system.presupuesto_df.copy()
         budget_comparison_df['Banda_Retencion_PCT'] = 0.0
         budget_comparison_df['Banda_Retencion_Amount'] = 0.0
         budget_comparison_df['Neto_Para_Musicos'] = budget_comparison_df['A REPARTIR']
         budget_comparison_df['Total Repartido'] = 0.0
-        
+
+        current_weights = st.session_state.editing_weights
         for idx, row in budget_comparison_df.iterrows():
             event_name = row['ACTES']
-            
-            # Apply band retention first
             retention_percentage = system.get_band_retention_for_event(event_name)
             retention_amount = row['A REPARTIR'] * (retention_percentage / 100)
             net_amount = row['A REPARTIR'] - retention_amount
-            
+
             budget_comparison_df.at[idx, 'Banda_Retencion_PCT'] = retention_percentage
             budget_comparison_df.at[idx, 'Banda_Retencion_Amount'] = retention_amount
             budget_comparison_df.at[idx, 'Neto_Para_Musicos'] = net_amount
-            
+
             if event_name in system.asistencia_df.columns:
-                # Get attendees for this event
                 event_attendees = system.asistencia_df[system.asistencia_df[event_name] == 1]
                 total_attendees = len(event_attendees)
-                
                 if total_attendees > 0:
-                    # Get weights for this event from session state
-                    current_weights = st.session_state.editing_weights
                     weight_row = current_weights[current_weights['ACTES'] == event_name]
-                    
-                    # Optional debug (remove comment to debug)
-                    # if not weight_row.empty:
-                    #     st.write(f"🔍 DEBUG Tabla 1 - Evento: {event_name}")
-                    #     st.write(f"   Pesos: A={weight_row.iloc[0]['A']}, B={weight_row.iloc[0]['B']}, C={weight_row.iloc[0]['C']}")
-                    
                     if not weight_row.empty:
                         weight_row = weight_row.iloc[0]
                         total_event_payment = 0
-                        
-                        # Calculate payment for each attendee using NET amount after band retention
                         for _, attendee in event_attendees.iterrows():
                             category = attendee['Categoria']
                             if category in ['A', 'B', 'C', 'D', 'E'] and category in weight_row:
                                 ponderacion = weight_row[category]
                                 payment = (net_amount / total_attendees) * ponderacion
                                 total_event_payment += payment
-                        
                         budget_comparison_df.at[idx, 'Total Repartido'] = total_event_payment
-        
-        # Calculate difference using net amount
-        budget_comparison_df['Diferencia_Neto'] = budget_comparison_df['Neto_Para_Musicos'] - budget_comparison_df['Total Repartido']
-        
-        # Display the comparison table with band retention info
-        display_df = budget_comparison_df[[
-            'ACTES', 'A REPARTIR', 'Banda_Retencion_PCT', 'Banda_Retencion_Amount', 
-            'Neto_Para_Musicos', 'Total Repartido', 'Diferencia_Neto'
-        ]].copy()
-        
-        # Round numeric columns
-        for col in ['A REPARTIR', 'Banda_Retencion_Amount', 'Neto_Para_Musicos', 'Total Repartido', 'Diferencia_Neto']:
-            display_df[col] = display_df[col].round(2)
-        display_df['Banda_Retencion_PCT'] = display_df['Banda_Retencion_PCT'].round(1)
-        
-        # Rename columns for better display
-        display_df.columns = [
-            'Acto', 'Presupuesto Original', 'Retención %', 'Retención €', 
-            'Neto para Músicos', 'Total Repartido', 'Diferencia'
-        ]
-        
-        st.dataframe(display_df, use_container_width=True)
-        
-        # Summary metrics (with band retention)
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_budget = budget_comparison_df['A REPARTIR'].sum()
-            st.metric("Total Presupuesto", f"€{total_budget:,.2f}")
-        
-        with col2:
-            total_retention = budget_comparison_df['Banda_Retencion_Amount'].sum()
-            st.metric("Total Retención Banda", f"€{total_retention:,.2f}")
-        
-        with col3:
-            total_net = budget_comparison_df['Neto_Para_Musicos'].sum()
-            st.metric("Total Neto Músicos", f"€{total_net:,.2f}")
-        
-        with col4:
-            total_difference = budget_comparison_df['Diferencia_Neto'].sum()
-            st.metric("Diferencia", f"€{total_difference:,.2f}", delta=f"{total_difference:,.2f}")
-            
+
+        budget_comparison_df['Diferencia_Neto'] = (
+            budget_comparison_df['Neto_Para_Musicos'] - budget_comparison_df['Total Repartido']
+        )
     except Exception as e:
         st.error(f"Error calculando comparación presupuestaria: {str(e)}")
-        st.write("Mostrando tabla básica de presupuesto:")
-        st.dataframe(system.presupuesto_df)
-    
-    # Real-time earnings table by category and event
-    st.divider()
-    st.subheader("💵 Ganancias por Categoría y Acto (Tiempo Real - Después de Retención)")
-    
-    try:
-        # Calculate earnings by category for each event - SHOW ALL EVENTS
-        earnings_data = []
-        current_weights = st.session_state.editing_weights
-        
-        for _, event_row in system.presupuesto_df.iterrows():
-            event_name = event_row['ACTES']
-            
-            # Apply band retention first
-            retention_percentage = system.get_band_retention_for_event(event_name)
-            original_amount = event_row['A REPARTIR']
-            net_amount = original_amount * (1 - retention_percentage / 100)
-            
-            if event_name in system.asistencia_df.columns:
-                # Get attendees for this event by category
-                event_attendees = system.asistencia_df[system.asistencia_df[event_name] == 1]
-                total_attendees = len(event_attendees)
-                
-                # Get weights for this event
-                weight_row = current_weights[current_weights['ACTES'] == event_name]
-                
-                # Optional debug (remove comment to debug)
-                # if not weight_row.empty:
-                #     st.write(f"🔍 DEBUG Tabla 2 - Evento: {event_name}")
-                #     st.write(f"   Pesos: A={weight_row.iloc[0]['A']}, B={weight_row.iloc[0]['B']}, C={weight_row.iloc[0]['C']}")
-                
-                if not weight_row.empty:
-                    weight_row = weight_row.iloc[0]
-                    
-                    # Calculate earnings for each category using NET amount - ALWAYS show, even if no attendees
-                    event_earnings = {
-                        'Acto': event_name,
-                        'Original': f"€{original_amount:.2f}",
-                        'Retención': f"{retention_percentage}%" if retention_percentage > 0 else "0%",
-                        'Neto': f"€{net_amount:.2f}"
-                    }
-                    
-                    for category in ['A', 'B', 'C', 'D', 'E']:
-                        if category in weight_row:
-                            if total_attendees > 0:
-                                ponderacion = float(weight_row[category])
-                                # Calculate individual payment for this category using NET amount
-                                individual_payment = (net_amount / total_attendees) * ponderacion
-                                event_earnings[category] = f"€{individual_payment:.2f}"
-                            else:
-                                # No attendees - show €0.00
-                                event_earnings[category] = "€0.00"
-                        else:
-                            event_earnings[category] = "€0.00"
-                    
-                    earnings_data.append(event_earnings)
-        
-        if earnings_data:
-            earnings_df = pd.DataFrame(earnings_data)
-            
-            # Display the earnings table with band retention info
-            st.write("**Ganancias individuales por categoría (después de retención de banda)**")
-            st.dataframe(earnings_df, use_container_width=True)
-            
-            # Show explanation
-            st.info("💵 Las ganancias mostradas ya incluyen el descuento por retención de banda configurada para cada acto.")
+
+    # ---- Tab: Comparison table ------------------------------------------
+    with tab_comp:
+        if budget_comparison_df is not None:
+            display_df = budget_comparison_df[[
+                'ACTES', 'A REPARTIR', 'Banda_Retencion_PCT', 'Banda_Retencion_Amount',
+                'Neto_Para_Musicos', 'Total Repartido', 'Diferencia_Neto'
+            ]].copy()
+            for col in ['A REPARTIR', 'Banda_Retencion_Amount', 'Neto_Para_Musicos',
+                        'Total Repartido', 'Diferencia_Neto']:
+                display_df[col] = display_df[col].round(2)
+            display_df['Banda_Retencion_PCT'] = display_df['Banda_Retencion_PCT'].round(1)
+            display_df.columns = [
+                'Acto', 'Presupuesto', 'Retención %', 'Retención €',
+                'Neto músicos', 'Total repartido', 'Diferencia',
+            ]
+            st.dataframe(
+                display_df.style.format({
+                    'Presupuesto': '€{:,.2f}',
+                    'Retención %': '{:.1f}%',
+                    'Retención €': '€{:,.2f}',
+                    'Neto músicos': '€{:,.2f}',
+                    'Total repartido': '€{:,.2f}',
+                    'Diferencia': '€{:,.2f}',
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
         else:
-            st.info("No hay datos de ganancias para mostrar")
-            
-    except Exception as e:
-        st.error(f"Error calculando ganancias por categoría: {str(e)}")
-        st.write("Detalle del error:", e)
+            st.dataframe(system.presupuesto_df, use_container_width=True, hide_index=True)
+
+    # ---- Tab: Earnings by category --------------------------------------
+    with tab_earnings:
+        try:
+            earnings_data = []
+            current_weights = st.session_state.editing_weights
+
+            for _, event_row in system.presupuesto_df.iterrows():
+                event_name = event_row['ACTES']
+                retention_percentage = system.get_band_retention_for_event(event_name)
+                original_amount = event_row['A REPARTIR']
+                net_amount = original_amount * (1 - retention_percentage / 100)
+
+                if event_name in system.asistencia_df.columns:
+                    event_attendees = system.asistencia_df[system.asistencia_df[event_name] == 1]
+                    total_attendees = len(event_attendees)
+                    weight_row = current_weights[current_weights['ACTES'] == event_name]
+
+                    if not weight_row.empty:
+                        weight_row = weight_row.iloc[0]
+                        event_earnings = {
+                            'Acto': event_name,
+                            'Original': original_amount,
+                            'Retención %': retention_percentage,
+                            'Neto': net_amount,
+                        }
+                        for category in ['A', 'B', 'C', 'D', 'E']:
+                            if category in weight_row and total_attendees > 0:
+                                ponderacion = float(weight_row[category])
+                                event_earnings[category] = (net_amount / total_attendees) * ponderacion
+                            else:
+                                event_earnings[category] = 0.0
+                        earnings_data.append(event_earnings)
+
+            if earnings_data:
+                earnings_df = pd.DataFrame(earnings_data)
+                st.dataframe(
+                    earnings_df.style.format({
+                        'Original': '€{:,.2f}',
+                        'Retención %': '{:.1f}%',
+                        'Neto': '€{:,.2f}',
+                        'A': '€{:,.2f}',
+                        'B': '€{:,.2f}',
+                        'C': '€{:,.2f}',
+                        'D': '€{:,.2f}',
+                        'E': '€{:,.2f}',
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption(
+                    "💡 Ganancia individual por categoría = (Neto / nº asistentes) × ponderación. "
+                    "Ya incluye la retención de banda."
+                )
+            else:
+                st.info("No hay datos de ganancias para mostrar.")
+        except Exception as e:
+            st.error(f"Error calculando ganancias por categoría: {str(e)}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Fill the top metrics container (computed above, rendered at top)
+    # ─────────────────────────────────────────────────────────────────────
+    with metrics_container:
+        if budget_comparison_df is not None:
+            total_budget = budget_comparison_df['A REPARTIR'].sum()
+            total_retention = budget_comparison_df['Banda_Retencion_Amount'].sum()
+            total_net = budget_comparison_df['Neto_Para_Musicos'].sum()
+            total_diff = budget_comparison_df['Diferencia_Neto'].sum()
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("💰 Presupuesto total", f"€{total_budget:,.2f}")
+            m2.metric("🏦 Retención banda", f"€{total_retention:,.2f}")
+            m3.metric("👥 Neto músicos", f"€{total_net:,.2f}")
+            # Color the diff: green if close to 0, red if negative, off otherwise
+            if abs(total_diff) < 1:
+                m4.metric("⚖️ Diferencia", f"€{total_diff:,.2f}", delta="óptima",
+                          delta_color="normal")
+            elif total_diff < 0:
+                m4.metric("⚖️ Diferencia", f"€{total_diff:,.2f}",
+                          delta=f"€{total_diff:,.2f}", delta_color="inverse")
+            else:
+                m4.metric("⚖️ Diferencia", f"€{total_diff:,.2f}",
+                          delta=f"€{total_diff:,.2f}", delta_color="off")
+
 
 def show_band_retention_page(system):
     """Band retention configuration page"""
