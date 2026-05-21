@@ -4,7 +4,7 @@ import numpy as np
 from io import BytesIO
 import plotly.express as px
 import plotly.graph_objects as go
-from Igualar_Precios import calcular_presupuestos_iguales
+from Igualar_Precios import calcular_presupuestos_iguales, calcular_ponderaciones_automaticas
 
 # Configure Streamlit page
 st.set_page_config(
@@ -821,7 +821,7 @@ def show_weights_editor(system):
     # Create editable dataframe with custom column configuration
     column_config = {
         "ACTES": st.column_config.TextColumn("Acto", disabled=True),
-        "A": st.column_config.NumberColumn("A", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
+        "A": st.column_config.NumberColumn("A", min_value=0.0, max_value=10.0, step=0.0001, format="%.4f"),
         "B": st.column_config.NumberColumn("B", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
         "C": st.column_config.NumberColumn("C", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
         "D": st.column_config.NumberColumn("D", min_value=0.0, max_value=10.0, step=0.001, format="%.3f"),
@@ -955,7 +955,177 @@ def show_weights_editor(system):
                         
                 except Exception as e:
                     st.error(f"Error al calcular: {str(e)}")
-    
+
+    # NEW: Automatic A weight calculation
+    st.divider()
+    st.subheader("🎯 Cálculo Automático de Ponderación A")
+    st.write(
+        "Calcula la ponderación **A** automáticamente para que "
+        "**Total Repartido = Neto para Músicos** (diferencia ≥ 0 garantizada)."
+    )
+    st.caption(
+        "Reglas: C=0.700, D=0.600, E=0.500 fijos · B se conserva · "
+        "A se trunca hacia abajo a los decimales indicados · "
+        "Actos oficiales (todo a 0) se omiten."
+    )
+
+    with st.expander("🛠️ Calcular A automáticamente", expanded=False):
+        # Build event list (exclude official events: all 5 weights = 0)
+        weights_df = st.session_state.editing_weights
+        cat_cols = ['A', 'B', 'C', 'D', 'E']
+        non_official_mask = (weights_df[cat_cols].fillna(0).sum(axis=1) > 0)
+        non_official_events = weights_df.loc[non_official_mask, 'ACTES'].tolist()
+
+        decimales_pond = st.slider(
+            "Decimales de la ponderación A (más decimales = menor diferencia en €):",
+            min_value=2, max_value=6, value=4, step=1,
+            help=(
+                "El truncamiento hacia abajo asegura que la diferencia (Neto − Total "
+                "Repartido) sea ≥ 0. Con 4 decimales el margen suele ser < €0.10 por acto."
+            ),
+        )
+
+        col_a, col_b = st.columns([2, 1])
+        with col_a:
+            evento_individual = st.selectbox(
+                "Selecciona un acto para recalcular:",
+                options=["— (ninguno) —"] + non_official_events,
+                index=0,
+                key="auto_pond_evento_individual",
+            )
+        with col_b:
+            st.write("")
+            st.write("")
+            recalcular_uno = st.button(
+                "🔧 Recalcular ESTE acto",
+                use_container_width=True,
+                disabled=(evento_individual == "— (ninguno) —"),
+            )
+
+        st.write("")
+        recalcular_todos = st.button(
+            "🚀 Recalcular A en TODOS los actos no oficiales",
+            use_container_width=True,
+            type="primary",
+        )
+
+        def _aplicar_auto_pond(eventos_a_recalcular):
+            df_pond_idx = st.session_state.editing_weights.copy().set_index('ACTES')
+            resultados = calcular_ponderaciones_automaticas(
+                df_asistencia=system.asistencia_df,
+                df_ponderaciones=df_pond_idx,
+                eventos=eventos_a_recalcular,
+                categoria_col="Categoria",
+                decimales=decimales_pond,
+            )
+
+            cambios = []
+            saltados = []
+            df_new = st.session_state.editing_weights.copy()
+            for evento, info in resultados.items():
+                if info.get("skipped"):
+                    saltados.append({"Acto": evento, "Motivo": info.get("reason", "")})
+                    continue
+                mask = df_new['ACTES'] == evento
+                if mask.any():
+                    df_new.loc[mask, 'A'] = info["A_nuevo"]
+                    df_new.loc[mask, 'B'] = info["B"]
+                    df_new.loc[mask, 'C'] = info["C"]
+                    df_new.loc[mask, 'D'] = info["D"]
+                    df_new.loc[mask, 'E'] = info["E"]
+
+                    # Calculate diff in € using current budget and band retention
+                    a_repartir = 0.0
+                    bp_row = system.presupuesto_df[system.presupuesto_df['ACTES'] == evento]
+                    if not bp_row.empty:
+                        a_repartir = float(bp_row.iloc[0]['A REPARTIR'])
+                    retention_pct = system.get_band_retention_for_event(evento)
+                    neto = a_repartir * (1 - retention_pct / 100)
+
+                    suma_pond = (
+                        info["n_A"] * info["A_nuevo"]
+                        + info["n_B"] * info["B"]
+                        + info["n_C"] * info["C"]
+                        + info["n_D"] * info["D"]
+                        + info["n_E"] * info["E"]
+                    )
+                    total_repartido = (neto / info["N_total"]) * suma_pond if info["N_total"] else 0.0
+                    diff_eur = neto - total_repartido
+
+                    cambios.append({
+                        "Acto": evento,
+                        "A anterior": info["A_anterior"],
+                        "A nuevo": info["A_nuevo"],
+                        "A exacto (sin truncar)": info["A_exacto"],
+                        "B": info["B"],
+                        "Asistentes": info["N_total"],
+                        "Neto (€)": neto,
+                        "Total Repartido (€)": total_repartido,
+                        "Diff (€)": diff_eur,
+                    })
+
+            # Persist
+            for c in cat_cols:
+                df_new[c] = df_new[c].astype(float)
+            st.session_state.editing_weights = df_new
+            system.configuracion_df = df_new.copy()
+            return cambios, saltados
+
+        fmt_pond = "{:." + str(decimales_pond) + "f}"
+        tabla_fmt = {
+            "A anterior": fmt_pond,
+            "A nuevo": fmt_pond,
+            "A exacto (sin truncar)": "{:.8f}",
+            "B": "{:.4f}",
+            "Neto (€)": "€{:,.2f}",
+            "Total Repartido (€)": "€{:,.2f}",
+            "Diff (€)": "€{:,.4f}",
+        }
+
+        if recalcular_uno and evento_individual != "— (ninguno) —":
+            try:
+                cambios, saltados = _aplicar_auto_pond([evento_individual])
+                if cambios:
+                    c = cambios[0]
+                    st.success(
+                        f"✅ Ponderación A recalculada para «{evento_individual}»: "
+                        f"{c['A anterior']:.{decimales_pond}f} → "
+                        f"{c['A nuevo']:.{decimales_pond}f} · "
+                        f"Diff = €{c['Diff (€)']:.4f}"
+                    )
+                    st.dataframe(
+                        pd.DataFrame(cambios).style.format(tabla_fmt),
+                        use_container_width=True,
+                    )
+                if saltados:
+                    st.warning("⚠️ Actos no procesados:")
+                    st.dataframe(pd.DataFrame(saltados), use_container_width=True)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al recalcular: {str(e)}")
+
+        if recalcular_todos:
+            try:
+                cambios, saltados = _aplicar_auto_pond(non_official_events)
+                if cambios:
+                    df_cambios = pd.DataFrame(cambios)
+                    diff_total = df_cambios["Diff (€)"].sum()
+                    diff_max = df_cambios["Diff (€)"].max()
+                    st.success(
+                        f"✅ Ponderación A recalculada en {len(cambios)} actos · "
+                        f"Diff total = €{diff_total:,.2f} · Diff máx por acto = €{diff_max:,.4f}"
+                    )
+                    st.dataframe(
+                        df_cambios.style.format(tabla_fmt),
+                        use_container_width=True,
+                    )
+                if saltados:
+                    st.warning(f"⚠️ {len(saltados)} acto(s) no procesado(s):")
+                    st.dataframe(pd.DataFrame(saltados), use_container_width=True)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al recalcular: {str(e)}")
+
     # Budget comparison table
     st.divider()
     st.subheader("💰 Comparación Presupuestaria en Tiempo Real (Incluye Retención de Banda)")
