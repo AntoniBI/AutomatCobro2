@@ -1,9 +1,8 @@
-customtkinter==5.2.0
+# Sistema de Cobro Musical — dependencias (web app FastAPI + HTML)
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
 pandas==2.1.3
+numpy==1.25.2
 openpyxl==3.1.2
 xlsxwriter==3.1.9
-numpy==1.25.2
-matplotlib==3.7.2
-seaborn==0.12.2
-pyinstaller==6.2.0
-plotly==5.16.1

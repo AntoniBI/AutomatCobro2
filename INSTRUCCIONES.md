@@ -1,35 +1,36 @@
-# INSTRUCCIONES PARA APLICACIÓN DE ESCRITORIO
+# INSTRUCCIONES DE USO
 
-## Opción 1: Ejecutar con Python (Recomendado)
-1. Haz doble clic en "start_app.bat"
-2. Se abrirá una ventana de comando
-3. Abre tu navegador web y ve a: http://localhost:8501
-4. ¡La aplicación estará funcionando!
+## Iniciar la aplicación
+1. Haz doble clic en **`start_web.bat`** (Windows) o ejecuta `python run.py`.
+2. Se abrirá automáticamente tu navegador en `http://127.0.0.1:8000`.
+3. ¡La aplicación estará funcionando!
 
-## Opción 2: Crear ejecutable independiente
-1. Instala Python 3.8+ en tu computadora
-2. Ejecuta: python setup_desktop.py
-3. Sigue las instrucciones en pantalla
+## Primera vez (instalar dependencias)
+1. Instala Python 3.10 o superior.
+2. Abre una terminal en esta carpeta y ejecuta:
+   ```
+   pip install -r requirements.txt
+   ```
+
+## Cómo usarla
+1. Arrastra tu archivo Excel a la barra lateral (o haz clic para seleccionarlo)
+   y pulsa **Cargar y Procesar**.
+2. Navega entre las páginas: Dashboard, Ponderaciones, Retención Banda,
+   Análisis por Actos y Procesar y Descargar.
+3. En **Procesar y Descargar** genera el Excel con los resultados.
+
+## Estructura del archivo Excel
+El archivo debe tener tres hojas:
+- **Asistencia**: Nombre, Apellidos, Instrumento, Categoria + una columna por acto.
+- **Presupuesto**: ACTES + columnas de presupuesto (incluida `A REPARTIR`).
+- **Configuracion_Precios**: ACTES, A, B, C, D, E.
 
 ## Requisitos
-- Python 3.8 o superior
-- Conexión a internet (para la primera instalación)
-- Navegador web (Chrome, Firefox, Edge, etc.)
-
-## Archivos importantes
-- app.py: Aplicación principal
-- Data/Actes.xlsx: Datos de ejemplo
-- requirements.txt: Dependencias
-- launcher.py: Lanzador de la aplicación
-
-## Compartir con otros usuarios
-Para que otros usuarios puedan usar la aplicación:
-1. Copia toda la carpeta a su computadora
-2. Instala Python en su computadora
-3. Ejecuta "start_app.bat"
+- Python 3.10 o superior.
+- Navegador web (Chrome, Firefox, Edge, etc.).
 
 ## Soporte
 Si tienes problemas, verifica que:
-1. Python esté instalado correctamente
-2. Todas las dependencias estén instaladas
-3. El archivo Data/Actes.xlsx exista en la carpeta correcta
+1. Python esté instalado correctamente.
+2. Todas las dependencias estén instaladas (`pip install -r requirements.txt`).
+3. El archivo Excel tenga las tres hojas con las columnas requeridas.

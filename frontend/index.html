@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistema de Cobro Musical</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-icon">🎵</span>
+        <div>
+          <div class="brand-title">Cobro Musical</div>
+          <div class="brand-sub">Sistema de reparto</div>
+        </div>
+      </div>
+
+      <!-- Carga de archivo -->
+      <div class="upload-box">
+        <div class="section-label">📁 Archivo Excel</div>
+        <div id="dropzone" class="dropzone">
+          <input type="file" id="file-input" accept=".xlsx,.xls" hidden />
+          <p class="dz-main">Arrastra tu Excel aquí</p>
+          <p class="dz-sub">o haz clic para seleccionar</p>
+        </div>
+        <div id="file-meta" class="file-meta hidden"></div>
+        <button id="btn-upload" class="btn btn-primary btn-block hidden">🔄 Cargar y Procesar</button>
+        <details class="hint">
+          <summary>📋 Estructura del archivo</summary>
+          <div class="hint-body">
+            <strong>Hojas requeridas:</strong>
+            <ul>
+              <li><b>Asistencia</b>: músicos × actos</li>
+              <li><b>Presupuesto</b>: ACTES + importes</li>
+              <li><b>Configuracion</b>: ACTES, A, B, C, D, E</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+
+      <!-- Navegación -->
+      <nav class="nav">
+        <div class="section-label">Navegación</div>
+        <button class="nav-item active" data-page="dashboard"><span>📊</span> Dashboard</button>
+        <button class="nav-item" data-page="weights"><span>⚖️</span> Ponderaciones</button>
+        <button class="nav-item" data-page="retention"><span>🏦</span> Retención Banda</button>
+        <button class="nav-item" data-page="analysis"><span>🎭</span> Análisis por Actos</button>
+        <button class="nav-item" data-page="process"><span>⚙️</span> Procesar y Descargar</button>
+      </nav>
+
+      <div class="sidebar-foot">v2 · FastAPI + HTML</div>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="content">
+      <div id="toasts" class="toasts"></div>
+
+      <!-- estado sin datos -->
+      <section id="no-data" class="page">
+        <div class="empty-hero">
+          <div class="empty-emoji">🎼</div>
+          <h1>Bienvenido al Sistema de Cobro Musical</h1>
+          <p>Carga un archivo Excel desde la barra lateral para comenzar.</p>
+          <ul class="feature-list">
+            <li>✅ Carga cualquier Excel con asistencia y presupuestos</li>
+            <li>🔄 Se adapta automáticamente al número de actos</li>
+            <li>⚖️ Edita ponderaciones por categoría en tiempo real</li>
+            <li>📊 Genera reportes completos y exporta a Excel</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ===== DASHBOARD ===== -->
+      <section id="page-dashboard" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Dashboard Principal</h1>
+          <p class="page-sub">Resumen general del reparto: presupuesto total, importe distribuido y composición de la banda.</p>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric"><div class="metric-head"><div class="metric-icon">💰</div><div class="metric-label">Total a Repartir</div></div><div class="metric-value" id="dash-budget">—</div></div>
+          <div class="metric"><div class="metric-head"><div class="metric-icon">📤</div><div class="metric-label">Total Distribuido</div></div><div class="metric-value" id="dash-distributed">—</div></div>
+          <div class="metric"><div class="metric-head"><div class="metric-icon">⚖️</div><div class="metric-label">Diferencia</div></div><div class="metric-value" id="dash-diff">—</div></div>
+        </div>
+        <div class="card-grid-2">
+          <div class="card"><h3>Músicos por Categoría</h3><div id="chart-categories" class="chart"></div></div>
+          <div class="card"><h3>Top 10 Actos por Presupuesto</h3><div id="chart-budget" class="chart"></div></div>
+        </div>
+      </section>
+
+      <!-- ===== PONDERACIONES ===== -->
+      <section id="page-weights" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Editar Ponderaciones</h1>
+          <p class="page-sub">Ajusta las ponderaciones por categoría. Los cambios se aplican en tiempo real y se reflejan en el resumen y la vista previa.</p>
+        </div>
+
+        <div class="metrics-grid metrics-4" id="weights-metrics"></div>
+
+        <div class="card">
+          <h3>📋 Tabla de ponderaciones</h3>
+          <div class="table-wrap"><table id="weights-table" class="data-table editable"></table></div>
+          <div class="btn-row">
+            <button id="btn-weights-save" class="btn btn-primary">💾 Guardar cambios</button>
+            <button id="btn-weights-restore" class="btn btn-ghost">🔄 Restaurar original</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>🛠️ Herramientas automáticas</h3>
+          <div class="tabs">
+            <button class="tab active" data-tab="auto-a">🎯 Ponderación A automática</button>
+            <button class="tab" data-tab="equalize">⚖️ Igualar presupuestos</button>
+          </div>
+
+          <div class="tab-panel" data-panel="auto-a">
+            <p class="muted">Calcula la ponderación <b>A</b> para que Total Repartido = Neto. C=0.700 · D=0.600 · E=0.500 fijos · B se conserva · actos oficiales se omiten.</p>
+            <div class="form-row">
+              <label>Decimales de A
+                <input type="range" id="auto-decimales" min="2" max="6" value="4" step="1" />
+                <span id="auto-decimales-val" class="pill">4</span>
+              </label>
+              <label>Acto individual (opcional)
+                <select id="auto-evento"></select>
+              </label>
+            </div>
+            <div class="btn-row">
+              <button id="btn-auto-uno" class="btn btn-ghost" disabled>🔧 Recalcular este acto</button>
+              <button id="btn-auto-todos" class="btn btn-primary">🚀 Recalcular TODOS los no oficiales</button>
+            </div>
+            <div id="auto-result"></div>
+          </div>
+
+          <div class="tab-panel hidden" data-panel="equalize">
+            <p class="muted">Ajusta los presupuestos para que el precio unitario ponderado sea igual en los actos seleccionados.</p>
+            <label class="block">Actos a igualar
+              <select id="eq-eventos" multiple size="8" class="multiselect"></select>
+            </label>
+            <div class="form-row">
+              <label>Presupuesto total a repartir (€)
+                <input type="number" id="eq-total" min="0" step="100" value="0" />
+              </label>
+            </div>
+            <button id="btn-equalize" class="btn btn-primary">🚀 Calcular y aplicar</button>
+            <div id="eq-result"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>👁️ Vista previa en tiempo real</h3>
+          <p class="muted">Incluye la retención de banda configurada para cada acto.</p>
+          <div class="tabs">
+            <button class="tab active" data-tab="comp">💰 Comparación presupuestaria</button>
+            <button class="tab" data-tab="earn">💵 Ganancias por categoría</button>
+          </div>
+          <div class="tab-panel" data-panel="comp">
+            <div class="table-wrap"><table id="preview-comp-table" class="data-table"></table></div>
+          </div>
+          <div class="tab-panel hidden" data-panel="earn">
+            <div class="table-wrap"><table id="preview-earn-table" class="data-table"></table></div>
+            <p class="muted">💡 Ganancia individual = (Neto / nº asistentes) × ponderación. Ya incluye la retención de banda.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== RETENCIÓN ===== -->
+      <section id="page-retention" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Configurar Retención de Banda</h1>
+          <p class="page-sub">Porcentaje que la banda retiene de cada acto <b>antes</b> de repartir entre los músicos.</p>
+        </div>
+
+        <div class="card">
+          <h3>📊 Retención por Acto</h3>
+          <div class="table-wrap"><table id="retention-table" class="data-table editable"></table></div>
+          <div class="btn-row">
+            <button id="btn-ret-save" class="btn btn-primary">💾 Guardar</button>
+            <button id="btn-ret-reset" class="btn btn-ghost">🔄 Resetear a 0%</button>
+            <button id="btn-ret-template" class="btn btn-ghost">🕰️ Plantilla rápida</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>💰 Impacto Financiero</h3>
+          <div class="metrics-grid" id="retention-metrics"></div>
+          <div id="retention-breakdown"></div>
+        </div>
+      </section>
+
+      <!-- ===== ANÁLISIS ===== -->
+      <section id="page-analysis" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Análisis por Actos</h1>
+          <p class="page-sub">Explora la asistencia por categoría y la información presupuestaria de cada acto.</p>
+        </div>
+        <label class="block">Selecciona un acto:
+          <select id="analysis-evento"></select>
+        </label>
+        <div class="card-grid-2">
+          <div class="card">
+            <h3>👥 Músicos por Categoría</h3>
+            <div id="analysis-chart" class="chart"></div>
+            <div class="table-wrap"><table id="analysis-table" class="data-table"></table></div>
+          </div>
+          <div class="card">
+            <h3>💰 Información Presupuestaria</h3>
+            <div id="analysis-budget" class="metrics-grid metrics-stack"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== PROCESAR ===== -->
+      <section id="page-process" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Procesar y Descargar</h1>
+          <p class="page-sub">Procesa todos los cálculos, aplica las penalizaciones y genera el Excel con los resultados detallados.</p>
+        </div>
+
+        <div class="card">
+          <h3>💰 Penalizaciones por Actos Oficiales</h3>
+          <div class="radio-group" id="penalty-criteria">
+            <label class="radio"><input type="radio" name="penalty" value="manual" checked /> <span>Introducir manualmente después de descargar el Excel</span></label>
+            <label class="radio"><input type="radio" name="penalty" value="fixed" /> <span>Cantidad fija por acto oficial no asistido</span></label>
+            <label class="radio"><input type="radio" name="penalty" value="average" /> <span>Media de ganancias por acto asistido</span></label>
+          </div>
+
+          <div id="penalty-fixed" class="penalty-config hidden">
+            <div class="radio-group">
+              <label class="radio"><input type="radio" name="penalty-type" value="uniform" checked /> <span>Cantidad igual para todas las categorías</span></label>
+              <label class="radio"><input type="radio" name="penalty-type" value="by_category" /> <span>Cantidad diferente por categoría</span></label>
+            </div>
+            <div id="penalty-uniform" class="form-row">
+              <label>Cantidad por acto no asistido (€)
+                <input type="number" id="penalty-uniform-amount" min="0" step="5" value="50" />
+              </label>
+            </div>
+            <div id="penalty-bycat" class="form-row hidden">
+              <label>A (€)<input type="number" class="pen-cat" data-cat="A" min="0" step="5" value="60" /></label>
+              <label>B (€)<input type="number" class="pen-cat" data-cat="B" min="0" step="5" value="55" /></label>
+              <label>C (€)<input type="number" class="pen-cat" data-cat="C" min="0" step="5" value="50" /></label>
+              <label>D (€)<input type="number" class="pen-cat" data-cat="D" min="0" step="5" value="45" /></label>
+              <label>E (€)<input type="number" class="pen-cat" data-cat="E" min="0" step="5" value="40" /></label>
+            </div>
+          </div>
+
+          <button id="btn-process" class="btn btn-primary btn-lg">🔄 Procesar Datos</button>
+        </div>
+
+        <div id="process-results" class="hidden">
+          <div class="metrics-grid metrics-4" id="process-metrics"></div>
+          <div id="process-penalty-metrics"></div>
+
+          <div class="card">
+            <div class="tabs">
+              <button class="tab active" data-tab="ms">💰 Resumen por Músico</button>
+              <button class="tab" data-tab="bc">📊 Comparación Presupuesto</button>
+              <button class="tab" data-tab="mc">👥 Músicos por Categoría</button>
+              <button class="tab" data-tab="rd">🏦 Retención Banda</button>
+            </div>
+            <div class="tab-panel" data-panel="ms"><div class="table-wrap"><table id="res-ms" class="data-table"></table></div></div>
+            <div class="tab-panel hidden" data-panel="bc"><div class="table-wrap"><table id="res-bc" class="data-table"></table></div></div>
+            <div class="tab-panel hidden" data-panel="mc"><div class="table-wrap"><table id="res-mc" class="data-table"></table></div></div>
+            <div class="tab-panel hidden" data-panel="rd"><div class="table-wrap"><table id="res-rd" class="data-table"></table></div></div>
+          </div>
+
+          <div class="card">
+            <h3>📥 Descargar Resultados</h3>
+            <div class="btn-row">
+              <button id="btn-export-full" class="btn btn-primary">💾 Excel Completo</button>
+              <button id="btn-export-basic" class="btn btn-ghost">📄 Excel Básico</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loading" class="loading-overlay hidden"><div class="spinner"></div><span id="loading-text">Procesando…</span></div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
