@@ -1,8 +1,9 @@
 """
 tests/parity_check.py — Verifica que el motor nuevo (backend.core) produce
-EXACTAMENTE los mismos resultados que la lógica original de Streamlit (app.py).
+EXACTAMENTE los mismos resultados que la lógica original de Streamlit
+(legacy/streamlit_app.py).
 
-Para importar `app.py` sin un runtime de Streamlit, se inyecta un stub mínimo
+Para importar el módulo legacy sin un runtime de Streamlit, se inyecta un stub mínimo
 del módulo `streamlit` en sys.modules antes de importarlo. El stub solo registra
 los mensajes; no altera ningún cálculo.
 
@@ -53,8 +54,13 @@ def _make_streamlit_stub():
 
 sys.modules["streamlit"] = _make_streamlit_stub()
 
-# Importar DESPUÉS de inyectar el stub
-import app as legacy            # noqa: E402
+# Importar DESPUÉS de inyectar el stub. El módulo legacy vive en legacy/streamlit_app.py.
+import importlib.util  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location("legacy_app", ROOT / "legacy" / "streamlit_app.py")
+legacy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(legacy)
+
 from backend.core import MusicianPaymentSystem as NewSystem  # noqa: E402
 
 

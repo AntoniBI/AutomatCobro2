@@ -1,9 +1,10 @@
 /* ============================================================
    app.js — Controlador principal: router + carga + páginas.
    ============================================================ */
-const { $, $$, eur, eur4, pct, num, toast, toastMessages, loading, animateValue } = UI;
+const { $, $$, eur, eur4, pct, num, svgIcon, toast, toastMessages, loading, animateValue } = UI;
 
-const BRAND_COLORS = ["#3b82f6", "#6366f1", "#10b981", "#f59e0b", "#0ea5e9", "#a855f7"];
+// Rampa cromática sobria (azul marino institucional → grises) para gráficos
+const BRAND_COLORS = ["#2c4a73", "#3a6098", "#5b7fa6", "#8aa3c0", "#b3c2d6", "#6b7a90"];
 const PLOTLY_LAYOUT = {
   paper_bgcolor: "rgba(0,0,0,0)",
   plot_bgcolor: "rgba(0,0,0,0)",
@@ -106,7 +107,7 @@ function bindUpload() {
 function selectFile(file) {
   State.selectedFile = file;
   $("#file-meta").classList.remove("hidden");
-  $("#file-meta").innerHTML = `📄 ${file.name}<br>📏 ${(file.size / 1024).toFixed(1)} KB`;
+  $("#file-meta").innerHTML = `${svgIcon("file")} <b>${escapeHtml(file.name)}</b><br><span class="muted">${(file.size / 1024).toFixed(1)} KB</span>`;
   $("#btn-upload").classList.remove("hidden");
 }
 
@@ -119,10 +120,10 @@ async function doUpload() {
     if (res.ok) {
       State.loaded = true;
       State.loadedPages = {};
-      toast("✅ Archivo cargado correctamente", "success");
+      toast("Archivo cargado correctamente", "success");
       showPage("dashboard");
     } else {
-      toast("❌ Error al cargar el archivo", "error");
+      toast("Error al cargar el archivo", "error");
     }
   } catch (e) {
     toast(e.message, "error");
@@ -156,7 +157,7 @@ async function loadDashboard() {
       "chart-budget",
       [{ type: "bar", orientation: "h",
          x: ev.map((e) => e["A REPARTIR"]), y: ev.map((e) => e.ACTES),
-         marker: { color: "#3b82f6", line: { width: 0 } } }],
+         marker: { color: "#2c4a73", line: { width: 0 } } }],
       { ...PLOTLY_LAYOUT, margin: { t: 20, r: 10, b: 40, l: 200 }, yaxis: { automargin: true, gridcolor: "rgba(0,0,0,0)" } },
       PLOTLY_CONFIG
     );
@@ -282,7 +283,7 @@ function renderAutoResult(res) {
   if (res.cambios.length) {
     const diffTotal = res.cambios.reduce((s, c) => s + c["Diff (€)"], 0);
     const diffMax = Math.max(...res.cambios.map((c) => c["Diff (€)"]));
-    html += `<div class="result-banner">✅ ${res.cambios.length} acto(s) recalculados · Diff total = ${eur4(diffTotal)} · Diff máx/acto = ${eur4(diffMax)}</div>`;
+    html += `<div class="result-banner">${svgIcon("check")}<span>${res.cambios.length} acto(s) recalculados · Diff total = ${eur4(diffTotal)} · Diff máx/acto = ${eur4(diffMax)}</span></div>`;
     const cols = [
       { key: "Acto", label: "Acto" },
       { key: "A anterior", label: "A anterior", cls: "num", fmt: (v) => num(v, d) },
@@ -300,7 +301,7 @@ function renderAutoResult(res) {
     box.innerHTML = "";
   }
   if (res.saltados.length) {
-    box.innerHTML += `<div class="result-banner warn">⚠️ ${res.saltados.length} acto(s) no procesado(s): ${res.saltados.map((s) => `${s.Acto} (${s.Motivo})`).join("; ")}</div>`;
+    box.innerHTML += `<div class="result-banner warn">${svgIcon("alert")}<span>${res.saltados.length} acto(s) no procesado(s): ${res.saltados.map((s) => `${escapeHtml(s.Acto)} (${escapeHtml(s.Motivo)})`).join("; ")}</span></div>`;
   }
 }
 
@@ -328,7 +329,7 @@ async function updateEqDefaultBudget() {
 async function runEqualize() {
   const eventos = selectedEqEvents();
   if (!eventos.length) {
-    toast("⚠️ Selecciona al menos un acto.", "warning");
+    toast("Selecciona al menos un acto.", "warning");
     return;
   }
   const total = parseFloat($("#eq-total").value) || 0;
@@ -337,7 +338,7 @@ async function runEqualize() {
     const res = await API.equalize(eventos, total);
     renderPreview(res.preview);
     const box = $("#eq-result");
-    box.innerHTML = `<div class="result-banner">✅ Presupuestos actualizados · Valor unitario común: ${eur4(res.valor_unitario)}</div>`;
+    box.innerHTML = `<div class="result-banner">${svgIcon("check")}<span>Presupuestos actualizados · Valor unitario común: ${eur4(res.valor_unitario)}</span></div>`;
     if (res.changes_log.length) {
       box.innerHTML += '<div class="table-wrap"><table class="data-table" id="eq-result-table"></table></div>';
       UI.renderTable($("#eq-result-table"), [
@@ -361,10 +362,10 @@ function renderPreview(preview) {
   const diffCls = Math.abs(m.total_diff) < 1 ? "good" : m.total_diff < 0 ? "bad" : "";
   const diffNote = Math.abs(m.total_diff) < 1 ? "óptima" : eur(m.total_diff);
   $("#weights-metrics").innerHTML = `
-    ${metricCard("💰 Presupuesto total", eur(m.total_budget))}
-    ${metricCard("🏦 Retención banda", eur(m.total_retention))}
-    ${metricCard("👥 Neto músicos", eur(m.total_net))}
-    ${metricCard("⚖️ Diferencia", eur(m.total_diff), `<span class="metric-delta ${diffCls}">${diffNote}</span>`)}
+    ${metricCard("wallet", "Presupuesto total", eur(m.total_budget))}
+    ${metricCard("bank", "Retención banda", eur(m.total_retention))}
+    ${metricCard("users", "Neto músicos", eur(m.total_net))}
+    ${metricCard("scale", "Diferencia", eur(m.total_diff), `<span class="metric-delta ${diffCls}">${diffNote}</span>`)}
   `;
 
   UI.renderTable($("#preview-comp-table"), [
@@ -458,9 +459,9 @@ async function pushRetention() {
 
 function renderRetentionImpact(impact) {
   $("#retention-metrics").innerHTML = `
-    ${metricCard("Total Presupuesto", eur(impact.total_budget))}
-    ${metricCard("Total Retención Banda", eur(impact.total_retention))}
-    ${metricCard("Neto para Músicos", eur(impact.net_for_musicians))}
+    ${metricCard("wallet", "Total Presupuesto", eur(impact.total_budget))}
+    ${metricCard("bank", "Total Retención Banda", eur(impact.total_retention))}
+    ${metricCard("users", "Neto para Músicos", eur(impact.net_for_musicians))}
   `;
   const box = $("#retention-breakdown");
   if (impact.breakdown.length) {
@@ -473,7 +474,7 @@ function renderRetentionImpact(impact) {
       { key: "Neto Músicos", label: "Neto Músicos", cls: "num", fmt: eur },
     ], impact.breakdown);
   } else {
-    box.innerHTML = '<p class="muted">💵 No hay retenciones configuradas — todo el presupuesto se repartirá.</p>';
+    box.innerHTML = `<p class="muted note">${svgIcon("info")}<span>No hay retenciones configuradas — todo el presupuesto se repartirá.</span></p>`;
   }
 }
 
@@ -503,7 +504,7 @@ async function loadEventAnalysis(event) {
     if (cats.length) {
       Plotly.newPlot(
         "analysis-chart",
-        [{ type: "bar", x: cats.map((c) => c.Categoria), y: cats.map((c) => c.Count), marker: { color: "#3b82f6" } }],
+        [{ type: "bar", x: cats.map((c) => c.Categoria), y: cats.map((c) => c.Count), marker: { color: "#2c4a73" } }],
         { ...PLOTLY_LAYOUT },
         PLOTLY_CONFIG
       );
@@ -519,7 +520,7 @@ async function loadEventAnalysis(event) {
 
     const b = data.presupuesto;
     $("#analysis-budget").innerHTML = b
-      ? `${metricCard("Cobrado", eur(b.COBRAT))}${metricCard("Gastos Alquiler", eur(b.LLOGATS))}${metricCard("Transporte", eur(b.TRANSPORT))}${metricCard("A Repartir", eur(b["A REPARTIR"]))}`
+      ? `${metricCard("banknote", "Cobrado", eur(b.COBRAT))}${metricCard("send", "Gastos Alquiler", eur(b.LLOGATS))}${metricCard("send", "Transporte", eur(b.TRANSPORT))}${metricCard("wallet", "A Repartir", eur(b["A REPARTIR"]))}`
       : '<p class="muted">No hay información presupuestaria para este acto</p>';
   } catch (e) {
     toast(e.message, "error");
@@ -570,12 +571,12 @@ async function runProcess() {
     const res = await API.process(buildPenaltyPayload());
     toastMessages(res.messages);
     if (!res.ok) {
-      toast("❌ Error procesando datos", "error");
+      toast("Error procesando datos", "error");
       return;
     }
     renderProcessResults(res);
     $("#process-results").classList.remove("hidden");
-    toast("✅ Datos procesados correctamente", "success");
+    toast("Datos procesados correctamente", "success");
   } catch (e) {
     toast(e.message, "error");
   } finally {
@@ -589,18 +590,18 @@ function renderProcessResults(res) {
   const totalVal = s.has_penalties ? s.total_final : s.total_distributed;
   const avgLabel = s.has_penalties ? "Pago Final Promedio" : "Pago Promedio";
   $("#process-metrics").innerHTML = `
-    ${metricCard("Músicos con Ganancias", s.musicians_paid)}
-    ${metricCard(totalLabel, eur(totalVal))}
-    ${metricCard("Retención Banda", eur(s.total_band_retention))}
-    ${metricCard(avgLabel, eur(s.avg_payment))}
+    ${metricCard("users", "Músicos con Ganancias", s.musicians_paid)}
+    ${metricCard("wallet", totalLabel, eur(totalVal))}
+    ${metricCard("bank", "Retención Banda", eur(s.total_band_retention))}
+    ${metricCard("banknote", avgLabel, eur(s.avg_payment))}
   `;
 
   $("#process-penalty-metrics").innerHTML =
     s.has_penalties
-      ? `<div class="card"><h3>📋 Resumen de Penalizaciones</h3><div class="metrics-grid">
-          ${metricCard("Total Penalizaciones", eur(s.total_penalties))}
-          ${metricCard("Músicos Penalizados", s.musicians_penalized)}
-          ${metricCard("Penalización Promedio", eur(s.avg_penalty))}
+      ? `<div class="card"><h3>${svgIcon("alert")} Resumen de Penalizaciones</h3><div class="metrics-grid">
+          ${metricCard("scale", "Total Penalizaciones", eur(s.total_penalties))}
+          ${metricCard("users", "Músicos Penalizados", s.musicians_penalized)}
+          ${metricCard("scale", "Penalización Promedio", eur(s.avg_penalty))}
         </div></div>`
       : "";
 
@@ -624,15 +625,10 @@ function download(kind) {
 // ============================================================
 // Utilidades
 // ============================================================
-function metricCard(label, value, extra = "") {
-  const { icon, text } = splitIcon(label);
-  const head = `<div class="metric-head">${icon ? `<div class="metric-icon">${icon}</div>` : ""}<div class="metric-label">${text}</div></div>`;
+// metricCard(iconName, label, value, extra) — iconName referencia un símbolo del sprite (#i-*).
+function metricCard(iconName, label, value, extra = "") {
+  const head = `<div class="metric-head">${iconName ? `<div class="metric-icon">${svgIcon(iconName)}</div>` : ""}<div class="metric-label">${label}</div></div>`;
   return `<div class="metric">${head}<div class="metric-value">${value}</div>${extra}</div>`;
-}
-// Separa un emoji inicial de la etiqueta para mostrarlo como icono.
-function splitIcon(label) {
-  const m = String(label).match(/^(\p{Extended_Pictographic}️?)\s+(.*)$/u);
-  return m ? { icon: m[1], text: m[2] } : { icon: "", text: label };
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>

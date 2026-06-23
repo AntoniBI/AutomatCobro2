@@ -1,7 +1,7 @@
 """
 backend/core.py — Motor de cálculo del Sistema de Cobro Musical (sin Streamlit).
 
-Contiene la MISMA lógica de negocio que la versión original en `app.py`
+Contiene la MISMA lógica de negocio que la versión original en `legacy/streamlit_app.py`
 (clase MusicianPaymentSystem). La matemática y el flujo de los cálculos se han
 mantenido idénticos byte a byte.
 
@@ -17,8 +17,25 @@ Las fórmulas de reparto, penalizaciones, retención de banda y los pasos de
 `process_payments` son idénticas al original.
 """
 
+import unicodedata
+
 import pandas as pd
 import numpy as np
+
+
+def _normalize_col(name):
+    """Normaliza un nombre de columna: minúsculas, sin acentos, espacios colapsados."""
+    s = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode()
+    return " ".join(s.lower().split())
+
+
+# Columnas de identidad del músico en la hoja de Asistencia: NO son actos.
+# Se comparan de forma normalizada (tolerante a acentos/mayúsculas/espacios) para
+# que variantes como "Nombre completo" o "Nom complet" no se detecten como actos.
+IDENTITY_COLUMNS = {
+    "nombre", "apellidos", "instrumento", "categoria",
+    "nombre completo", "nombrecompleto", "nom complet", "nom",
+}
 
 
 class MusicianPaymentSystem:
@@ -61,25 +78,25 @@ class MusicianPaymentSystem:
             excel_file = pd.ExcelFile(uploaded_file)
             available_sheets = excel_file.sheet_names
 
-            self._msg("info", f"📋 Hojas encontradas en el archivo: {', '.join(available_sheets)}")
+            self._msg("info", f"Hojas encontradas en el archivo: {', '.join(available_sheets)}")
 
             asistencia_sheet = self._find_sheet_by_patterns(available_sheets, ["Asistencia", "asistencia", "Attendance", "attendance"])
             presupuesto_sheet = self._find_sheet_by_patterns(available_sheets, ["Presupuesto", "presupuesto", "Budget", "budget"])
             configuracion_sheet = self._find_sheet_by_patterns(available_sheets, ["Configuracion_Precios", "configuracion_precios", "Configuracion", "configuracion", "Prices", "prices", "Config", "config"])
 
             if not asistencia_sheet:
-                self._msg("error", "❌ No se encontró hoja de Asistencia. Nombres esperados: Asistencia, asistencia, Attendance, attendance")
+                self._msg("error", "No se encontró hoja de Asistencia. Nombres esperados: Asistencia, asistencia, Attendance, attendance")
                 return False
 
             if not presupuesto_sheet:
-                self._msg("error", "❌ No se encontró hoja de Presupuesto. Nombres esperados: Presupuesto, presupuesto, Budget, budget")
+                self._msg("error", "No se encontró hoja de Presupuesto. Nombres esperados: Presupuesto, presupuesto, Budget, budget")
                 return False
 
             if not configuracion_sheet:
-                self._msg("error", "❌ No se encontró hoja de Configuración de Precios. Nombres esperados: Configuracion_Precios, Configuracion, Config, etc.")
+                self._msg("error", "No se encontró hoja de Configuración de Precios. Nombres esperados: Configuracion_Precios, Configuracion, Config, etc.")
                 return False
 
-            self._msg("success", f"✅ Hojas identificadas: {asistencia_sheet}, {presupuesto_sheet}, {configuracion_sheet}")
+            self._msg("success", f"Hojas identificadas: {asistencia_sheet}, {presupuesto_sheet}, {configuracion_sheet}")
 
             self.asistencia_df = pd.read_excel(uploaded_file, sheet_name=asistencia_sheet)
             self.presupuesto_df = pd.read_excel(uploaded_file, sheet_name=presupuesto_sheet)
@@ -123,39 +140,44 @@ class MusicianPaymentSystem:
             missing_cols = [col for col in required_asistencia_cols if col not in self.asistencia_df.columns]
 
             if missing_cols:
-                self._msg("error", f"❌ Columnas faltantes en hoja de Asistencia: {missing_cols}")
-                self._msg("info", "💡 Columnas requeridas: Nombre, Apellidos, Instrumento, Categoria")
+                self._msg("error", f"Columnas faltantes en hoja de Asistencia: {missing_cols}")
+                self._msg("info", "Columnas requeridas: Nombre, Apellidos, Instrumento, Categoria")
                 return False
 
             if 'ACTES' not in self.presupuesto_df.columns:
-                self._msg("error", "❌ Columna 'ACTES' faltante en hoja de Presupuesto")
+                self._msg("error", "Columna 'ACTES' faltante en hoja de Presupuesto")
                 return False
 
-            budget_cols = []
-            for col in self.presupuesto_df.columns:
-                if any(word in col.upper() for word in ['REPARTIR', 'BUDGET', 'TOTAL', 'AMOUNT']):
-                    budget_cols.append(col)
-
-            if not budget_cols:
-                possible_budget_cols = [col for col in self.presupuesto_df.columns if col.upper() in ['A REPARTIR', 'TOTAL', 'AMOUNT', 'BUDGET']]
-                if not possible_budget_cols:
-                    self._msg("error", "❌ No se encontró columna de presupuesto. Busque columnas como 'A REPARTIR', 'TOTAL', 'BUDGET'")
+            # El motor reparte siempre sobre una columna llamada exactamente
+            # 'A REPARTIR'. Normalizamos variantes de mayúsculas/espacios a ese
+            # nombre y exigimos que exista (en vez de fallar más tarde al calcular).
+            if 'A REPARTIR' not in self.presupuesto_df.columns:
+                matches = [c for c in self.presupuesto_df.columns
+                           if isinstance(c, str) and c.strip().upper() == 'A REPARTIR']
+                if matches:
+                    self.presupuesto_df = self.presupuesto_df.rename(columns={matches[0]: 'A REPARTIR'})
+                    self._msg("info", f"Columna de presupuesto '{matches[0]}' normalizada a 'A REPARTIR'")
+                else:
+                    budget_like = [c for c in self.presupuesto_df.columns
+                                   if isinstance(c, str) and any(w in c.upper() for w in ['REPARTIR', 'BUDGET', 'TOTAL', 'AMOUNT'])]
+                    detalle = f" Columnas parecidas encontradas: {', '.join(budget_like)}." if budget_like else ""
+                    self._msg("error", "Falta la columna 'A REPARTIR' en la hoja de Presupuesto. "
+                                        "El reparto requiere una columna con ese nombre exacto." + detalle)
                     return False
-                budget_cols = possible_budget_cols
 
-            self._msg("info", f"💰 Columnas de presupuesto detectadas: {', '.join(budget_cols)}")
+            self._msg("info", "Columna de presupuesto detectada: A REPARTIR")
 
             if 'ACTES' not in self.configuracion_df.columns:
-                self._msg("error", "❌ Columna 'ACTES' faltante en hoja de Configuración")
+                self._msg("error", "Columna 'ACTES' faltante en hoja de Configuración")
                 return False
 
             category_cols = [col for col in self.configuracion_df.columns if col in ['A', 'B', 'C', 'D', 'E']]
 
             if len(category_cols) == 0:
-                self._msg("error", "❌ No se encontraron columnas de categorías (A, B, C, D, E) en la configuración")
+                self._msg("error", "No se encontraron columnas de categorías (A, B, C, D, E) en la configuración")
                 return False
 
-            self._msg("info", f"🏷️ Categorías detectadas: {', '.join(category_cols)}")
+            self._msg("info", f"Categorías detectadas: {', '.join(category_cols)}")
 
             self._clean_data()
 
@@ -184,10 +206,10 @@ class MusicianPaymentSystem:
                 self.asistencia_df[event] = pd.to_numeric(self.asistencia_df[event], errors='coerce').fillna(0)
                 self.asistencia_df[event] = self.asistencia_df[event].apply(lambda x: 1 if x > 0 else 0)
 
-            self._msg("success", "✅ Datos limpiados y estandarizados")
+            self._msg("success", "Datos limpiados y estandarizados")
 
         except Exception as e:
-            self._msg("warning", f"⚠️ Advertencia en limpieza de datos: {str(e)}")
+            self._msg("warning", f"Advertencia en limpieza de datos: {str(e)}")
 
     def get_data_summary(self):
         """Devuelve el resumen de los datos cargados (antes _show_data_summary)."""
@@ -220,28 +242,30 @@ class MusicianPaymentSystem:
             extra_in_configuracion = configuracion_events - asistencia_events
 
             if missing_in_presupuesto:
-                self._msg("warning", f"⚠️ Eventos en Asistencia pero faltantes en Presupuesto: {missing_in_presupuesto}")
+                self._msg("warning", f"Eventos en Asistencia pero faltantes en Presupuesto: {missing_in_presupuesto}")
 
             if missing_in_configuracion:
-                self._msg("warning", f"⚠️ Eventos en Asistencia pero faltantes en Configuracion_Precios: {missing_in_configuracion}")
+                self._msg("warning", f"Eventos en Asistencia pero faltantes en Configuracion_Precios: {missing_in_configuracion}")
 
             if extra_in_presupuesto:
-                self._msg("warning", f"⚠️ Eventos en Presupuesto pero faltantes en Asistencia: {extra_in_presupuesto}")
+                self._msg("warning", f"Eventos en Presupuesto pero faltantes en Asistencia: {extra_in_presupuesto}")
 
             if extra_in_configuracion:
-                self._msg("warning", f"⚠️ Eventos en Configuracion_Precios pero faltantes en Asistencia: {extra_in_configuracion}")
+                self._msg("warning", f"Eventos en Configuracion_Precios pero faltantes en Asistencia: {extra_in_configuracion}")
 
             if not (missing_in_presupuesto or missing_in_configuracion or extra_in_presupuesto or extra_in_configuracion):
-                self._msg("success", f"✅ Datos consistentes: {len(asistencia_events)} eventos encontrados en todas las hojas")
+                self._msg("success", f"Datos consistentes: {len(asistencia_events)} eventos encontrados en todas las hojas")
 
         except Exception as e:
             self._msg("error", f"Error validating data consistency: {str(e)}")
 
     def get_events_list(self):
-        """Get list of events from attendance data"""
+        """Lista de actos: todas las columnas de Asistencia que no son de identidad
+        del músico (Nombre, Apellidos, Instrumento, Categoria, Nombre completo…)."""
         if self.asistencia_df is None:
             return []
-        return [col for col in self.asistencia_df.columns if col not in ['Nombre', 'Apellidos', 'Instrumento', 'Categoria']]
+        return [col for col in self.asistencia_df.columns
+                if _normalize_col(col) not in IDENTITY_COLUMNS]
 
     def _initialize_band_retention(self):
         """Initialize band retention data structure"""
@@ -351,11 +375,14 @@ class MusicianPaymentSystem:
             self._msg("error", "No hay datos cargados. Por favor, carga un archivo Excel primero.")
             return None
         try:
-            # 1. Transform attendance table to long format
+            # 1. Transform attendance table to long format.
+            # value_vars se limita a los actos reales: así, columnas de identidad
+            # extra (p. ej. "Nombre completo") nunca se convierten en un "Acto".
             id_vars = ['Nombre', 'Apellidos', 'Instrumento', 'Categoria']
             attendance_long = pd.melt(
                 self.asistencia_df,
                 id_vars=id_vars,
+                value_vars=self.get_events_list(),
                 var_name='Acto',
                 value_name='Asistencia'
             )
@@ -371,10 +398,6 @@ class MusicianPaymentSystem:
                 how='left'
             )
 
-            events_without_budget = attendance_budget[attendance_budget['ACTES'].isna()]['Acto'].unique()
-            if len(events_without_budget) > 0:
-                print(f"WARNING: Events without budget data: {events_without_budget}")
-
             # 4. Join with weights - ENSURE ALL EVENTS ARE PROCESSED
             attendance_weights = attendance_budget.merge(
                 self.configuracion_df,
@@ -383,10 +406,6 @@ class MusicianPaymentSystem:
                 how='left',
                 suffixes=('', '_config')
             )
-
-            events_without_config = attendance_weights[attendance_weights['ACTES_config'].isna()]['Acto'].unique()
-            if len(events_without_config) > 0:
-                print(f"WARNING: Events without configuration data: {events_without_config}")
 
             events_with_complete_data = []
             events_with_missing_data = []
@@ -398,24 +417,37 @@ class MusicianPaymentSystem:
                 if has_budget and has_config:
                     events_with_complete_data.append(event_name)
                 else:
-                    events_with_missing_data.append({
-                        'event': event_name,
-                        'has_budget': has_budget,
-                        'has_config': has_config
-                    })
+                    falta = []
+                    if not has_budget:
+                        falta.append("presupuesto")
+                    if not has_config:
+                        falta.append("configuración")
+                    events_with_missing_data.append(f"{event_name} (falta {', '.join(falta)})")
 
+            # Antes esto solo se escribía con print() al stdout del servidor y el
+            # usuario nunca lo veía. Ahora se notifica en la interfaz.
             if events_with_missing_data:
-                print(f"Events with incomplete data (will be skipped from payment calculations):")
-                for item in events_with_missing_data:
-                    print(f"  - {item['event']}: Budget={item['has_budget']}, Config={item['has_config']}")
-
-            print(f"Events with complete data for processing: {len(events_with_complete_data)}")
+                self._msg(
+                    "warning",
+                    f"{len(events_with_missing_data)} acto(s) omitidos del reparto por datos incompletos: "
+                    + "; ".join(events_with_missing_data)
+                )
 
             # Only keep rows with complete data for payment calculation
             attendance_weights = attendance_weights.dropna(subset=['A REPARTIR', 'A', 'B', 'C', 'D', 'E'])
 
             # 5. Filter attendees only
             attendees = attendance_weights[attendance_weights['Asistencia'] == 1].copy()
+
+            # Aviso: categorías fuera de A–E reciben ponderación 1.0 por defecto
+            # (comportamiento histórico). Antes era silencioso; ahora se notifica.
+            unknown_cats = sorted(set(attendees['Categoria'].unique()) - {'A', 'B', 'C', 'D', 'E'})
+            if unknown_cats:
+                self._msg(
+                    "warning",
+                    "Categorías no reconocidas (se les aplica ponderación 1.0): "
+                    + ", ".join(str(c) for c in unknown_cats)
+                )
 
             # 6. Calculate total attendees per event
             attendees_per_event = attendees.groupby('Acto')['Musico'].count().reset_index()
@@ -620,7 +652,7 @@ class MusicianPaymentSystem:
 
         Devuelve (cambios, saltados).
         """
-        from Igualar_Precios import calcular_ponderaciones_automaticas
+        from .pricing import calcular_ponderaciones_automaticas
 
         cat_cols = ['A', 'B', 'C', 'D', 'E']
         df_pond_idx = self.editing_weights.copy().set_index('ACTES')
@@ -690,7 +722,7 @@ class MusicianPaymentSystem:
 
     def apply_equalize_budgets(self, selected_events, target_total_budget):
         """Iguala presupuestos (idéntico al bloque de la pestaña de igualar)."""
-        from Igualar_Precios import calcular_presupuestos_iguales
+        from .pricing import calcular_presupuestos_iguales
 
         df_pond_for_calc = self.editing_weights.copy()
         if 'ACTES' in df_pond_for_calc.columns:
@@ -811,7 +843,10 @@ class MusicianPaymentSystem:
             acto = row['ACTES']
             if acto in by_acto:
                 if 'BANDA_PORCENTAJE' in by_acto[acto]:
-                    df.at[idx, 'BANDA_PORCENTAJE'] = float(by_acto[acto]['BANDA_PORCENTAJE'])
+                    # Acotar a [0, 100]: un porcentaje fuera de rango produciría
+                    # un neto negativo (banda cobrando más que el presupuesto).
+                    pct = float(by_acto[acto]['BANDA_PORCENTAJE'])
+                    df.at[idx, 'BANDA_PORCENTAJE'] = max(0.0, min(100.0, pct))
                 if 'DESCRIPCION' in by_acto[acto]:
                     df.at[idx, 'DESCRIPCION'] = str(by_acto[acto]['DESCRIPCION'])
         self.band_retention_config = df.copy()

@@ -15,12 +15,21 @@ const UI = (() => {
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // ---- Iconos (sprite #i-*) ----
+  const TOAST_ICONS = { success: "i-check", error: "i-x", warning: "i-alert", info: "i-info" };
+  function svgIcon(name, extraCls = "") {
+    return `<svg class="ico ${extraCls}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+  }
+
   // ---- Toasts ----
   function toast(text, level = "info", timeout = 4200) {
     const wrap = $("#toasts");
     const el = document.createElement("div");
     el.className = `toast ${level}`;
-    el.textContent = text;
+    const span = document.createElement("span");
+    span.textContent = text;
+    el.innerHTML = `<svg class="ico" aria-hidden="true"><use href="#${TOAST_ICONS[level] || "i-info"}"></use></svg>`;
+    el.appendChild(span);
     wrap.appendChild(el);
     setTimeout(() => {
       el.style.opacity = "0";
@@ -114,5 +123,5 @@ const UI = (() => {
     });
   }
 
-  return { eur, eur4, pct, num, $, $$, toast, toastMessages, loading, animateValue, renderTable, renderRecords, initTabs };
+  return { eur, eur4, pct, num, $, $$, svgIcon, toast, toastMessages, loading, animateValue, renderTable, renderRecords, initTabs };
 })();

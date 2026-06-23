@@ -1,4 +1,4 @@
-# Sistema de Cobro Musical 🎵
+# Sistema de Cobro Musical
 
 Aplicación web para automatizar el cálculo de pagos a músicos de sociedades
 musicales valencianas basado en datos de asistencia a actos.
@@ -41,21 +41,25 @@ uvicorn backend.server:app --reload
 ## Estructura del proyecto
 
 ```
-backend/              Paquete Python (servidor + lógica)
-  core.py             Motor de cálculo (MusicianPaymentSystem), sin UI
-  excel_export.py     Generación de los ficheros Excel de resultados
-  server.py           API REST (FastAPI) + servido del frontend
-Igualar_Precios.py    Cálculo de ponderaciones automáticas e igualar presupuestos
-frontend/             Cliente web
+backend/                 Paquete Python (servidor + lógica)
+  core.py                Motor de cálculo (MusicianPaymentSystem), sin UI
+  pricing.py             Ponderaciones automáticas e igualar presupuestos
+  excel_export.py        Generación de los ficheros Excel de resultados
+  server.py              API REST (FastAPI) + servido del frontend
+frontend/                Cliente web
   index.html
+  assets/                Logo y favicon (escudo de la sociedad)
   css/styles.css
-  js/api.js           Cliente HTTP
-  js/ui.js            Helpers de presentación (tablas, toasts, tabs)
-  js/app.js           Controlador de páginas + router
-run.py                Lanzador (uvicorn + abre el navegador)
-start_web.bat         Lanzador para Windows
-tests/parity_check.py Verifica paridad con la lógica original de Streamlit
-Data/                 Archivos Excel de ejemplo
+  js/api.js              Cliente HTTP
+  js/ui.js               Helpers de presentación (tablas, toasts, tabs, iconos)
+  js/app.js              Controlador de páginas + router
+run.py                   Lanzador (uvicorn + abre el navegador)
+start_web.bat            Lanzador para Windows
+Data/                    Archivos Excel de ejemplo
+docs/                    Documentación de usuario (INSTRUCCIONES, prompt)
+legacy/                  App Streamlit original (referencia de paridad)
+  streamlit_app.py
+tests/parity_check.py    Verifica paridad con la lógica original de Streamlit
 ```
 
 ## Estructura de Datos
@@ -81,7 +85,8 @@ python tests/parity_check.py
 ```
 
 Compara, sobre los mismos datos, el motor nuevo (`backend.core`) con la lógica
-original de Streamlit (`app.py`) y confirma que los resultados son idénticos.
+original de Streamlit (`legacy/streamlit_app.py`) y confirma que los resultados
+son idénticos.
 
 ## Tecnologías
 

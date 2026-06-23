@@ -1,7 +1,7 @@
 """
 backend/excel_export.py — Generación de los ficheros Excel de resultados.
 
-Funciones idénticas a las del `app.py` original (create_excel_export,
+Funciones idénticas a las del `legacy/streamlit_app.py` original (create_excel_export,
 create_summary_sheet, create_simple_excel_export). Solo se han eliminado las
 llamadas de UI `st.warning`: los avisos se acumulan en la lista `warnings`
 opcional para que la capa que invoque decida cómo mostrarlos.

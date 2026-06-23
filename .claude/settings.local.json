@@ -33,7 +33,28 @@
       "Bash(node -e ' *)",
       "Bash(python -m playwright install chromium)",
       "Bash(rm -f shot.png shot_dashboard.png shot_weights.png server.log .sid.txt cookies.txt)",
-      "Bash(rm -rf .edge_tmp)"
+      "Bash(rm -rf .edge_tmp)",
+      "Bash(python -c \"import PIL; print\\('Pillow', PIL.__version__\\)\")",
+      "Bash(mkdir -p frontend/assets)",
+      "Bash(python -)",
+      "Bash(python -c \"import scipy; print\\('scipy ok'\\)\")",
+      "Bash(python -c \"import scipy; print\\('scipy', scipy.__version__\\)\")",
+      "Bash(mkdir -p docs legacy)",
+      "Bash(git mv *)",
+      "Bash(python -m uvicorn backend.server:app --host 127.0.0.1 --port 8077 --log-level warning)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8077/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8077/static/assets/logo.png)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8077/static/assets/favicon.png)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8077/static/css/styles.css)",
+      "Bash(python -c \"import playwright; print\\('playwright ok'\\)\")",
+      "Bash(python -c \"from playwright.sync_api import sync_playwright; p=sync_playwright\\(\\).start\\(\\); b=p.chromium.launch\\(\\); print\\('chromium ok'\\); b.close\\(\\); p.stop\\(\\)\")",
+      "Bash(pkill -f \"uvicorn backend.server\")",
+      "Bash(rm -rf _shots)",
+      "Bash(git add *)",
+      "Bash(rm -rf _shots __pycache__ backend/__pycache__)",
+      "Bash(wc -l backend/*.py frontend/js/*.js legacy/streamlit_app.py)",
+      "Bash(perl -i -CSD -pe 's/\\([\\\\x{1F4CB}\\\\x{274C}\\\\x{2705}\\\\x{1F4A1}\\\\x{1F4B0}\\\\x{1F3F7}\\\\x{26A0}]\\\\x{FE0F}?\\)\\\\s?//g' backend/core.py)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in ['backend/core.py','backend/pricing.py']]; print\\('sintaxis OK'\\)\")"
     ]
   }
 }

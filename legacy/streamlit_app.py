@@ -1,10 +1,17 @@
+import sys
+from pathlib import Path
+
+# Permite ejecutar este script legacy desde cualquier ubicación: añade la raíz
+# del proyecto al path para resolver el paquete `backend`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
 import plotly.express as px
 import plotly.graph_objects as go
-from Igualar_Precios import calcular_presupuestos_iguales, calcular_ponderaciones_automaticas
+from backend.pricing import calcular_presupuestos_iguales, calcular_ponderaciones_automaticas
 
 # Configure Streamlit page
 st.set_page_config(
