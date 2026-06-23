@@ -9,7 +9,7 @@ $ws  = New-Object -ComObject WScript.Shell
 $lnk = $ws.CreateShortcut($lnkPath)
 $lnk.TargetPath       = Join-Path $root "start_web.bat"
 $lnk.WorkingDirectory = $root
-$lnk.IconLocation     = Join-Path $root "frontend\assets\app.ico"
+$lnk.IconLocation     = Join-Path $root "frontend\assets\escudo.ico"
 $lnk.Description       = "Sistema de Cobro Musical"
 $lnk.Save()
 
