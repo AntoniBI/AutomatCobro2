@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Artefactos de ejecución / pruebas
+*.log
+cookies.txt
+*.tmp
+out_*.xlsx
+proc.json
+cobro_musical_*.xlsx
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

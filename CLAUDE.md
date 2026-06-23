@@ -1,110 +1,97 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
 
-## Project Overview
+## Visión general
 
-Sistema de Cobro Musical - A Streamlit application for automating payment calculations for musicians in Valencian musical societies based on event attendance data.
+Sistema de Cobro Musical: aplicación web para automatizar el cálculo de pagos a
+músicos de sociedades musicales valencianas a partir de los datos de asistencia a
+los actos.
 
-## Development Setup
+Arquitectura **FastAPI + HTML/CSS/JS (vanilla)**. Migrada desde una versión
+Streamlit, conservando **exactamente la misma lógica de cálculo** (verificada con
+un test de paridad). La versión Streamlit se conserva en `legacy/` solo como
+referencia de paridad.
 
-### Requirements
+## Puesta en marcha
+
 ```bash
 pip install -r requirements.txt
+python run.py              # arranca uvicorn en http://127.0.0.1:8000 y abre el navegador
+# o doble clic en start_web.bat (Windows)
 ```
 
-### Running the Application
+Desarrollo con recarga:
 
-#### Development Mode
 ```bash
-streamlit run app.py
+uvicorn backend.server:app --reload
 ```
 
-#### Desktop Application Mode (New CustomTkinter Version)
+Verificar que la lógica sigue siendo idéntica a la original:
+
 ```bash
-python launcher_desktop.py
-# or double-click start_desktop.bat (Windows)
-# or ./start_desktop.sh (Mac/Linux)
+python tests/parity_check.py
 ```
 
-#### Legacy Streamlit Web Mode
-```bash
-python launcher.py
-# or double-click start_app.bat (Windows)
+## Estructura del proyecto
+
+```
+backend/                 Paquete Python (servidor + lógica de negocio)
+  core.py                Motor de cálculo (MusicianPaymentSystem), sin UI
+  pricing.py             Ponderaciones automáticas e igualar presupuestos
+  excel_export.py        Generación de los ficheros Excel de resultados
+  server.py              API REST (FastAPI) + servido del frontend estático
+frontend/                Cliente web (servido en /static)
+  index.html             SPA + sprite de iconos SVG (#i-*)
+  assets/                logo.png, favicon.png, escudo-original.jpg
+  css/styles.css         Tema visual (tokens en :root)
+  js/api.js              Cliente HTTP
+  js/ui.js               Helpers: formato, toasts, tablas, tabs, svgIcon()
+  js/app.js              Router + controladores de página
+Data/                    Archivos Excel de ejemplo (Actes.xlsx, Miembros.xlsx)
+docs/                    Documentación de usuario
+legacy/streamlit_app.py  App Streamlit original (referencia de paridad)
+tests/parity_check.py    Compara backend.core con la lógica original
+run.py / start_web.bat   Lanzadores
 ```
 
-#### Setup Desktop Environment
-```bash
-python setup_desktop.py
+## Estructura de datos
+
+El Excel de entrada tiene tres hojas:
+
+1. **Asistencia**: músicos × actos, con asistencia binaria (1/0).
+2. **Presupuesto**: importes por acto (`ACTES`, `A REPARTIR`, COBRAT, LLOGATS, TRANSPORT…).
+3. **Configuracion_Precios**: ponderaciones por categoría (`ACTES`, A, B, C, D, E).
+
+El número de actos es dinámico: la app se adapta a las columnas presentes.
+
+## Arquitectura
+
+- `backend/server.py`: API REST. Estado por usuario en sesiones en memoria
+  identificadas por cookie (`cobro_session`); cada sesión tiene su propia
+  instancia de `MusicianPaymentSystem`. Sirve `frontend/` en `/static` y el
+  `index.html` en `/`.
+- `backend/core.py`: toda la lógica de cálculo, carga de Excel y agregados, sin
+  ninguna dependencia de UI. Importa `pricing` de forma perezosa donde hace falta.
+- `frontend/js/app.js`: router de páginas (Dashboard, Ponderaciones, Retención,
+  Análisis, Procesar) que consume la API y pinta tablas/gráficos (Plotly).
+
+### Iconografía
+Los iconos son SVG de línea definidos como `<symbol id="i-*">` en un sprite al
+inicio de `index.html`. Se usan con `<svg class="ico"><use href="#i-nombre">` en
+el HTML y con el helper `UI.svgIcon(nombre)` en el JS dinámico. **No usar emojis**
+como iconos de interfaz.
+
+## Fórmula de reparto
+
+```
+Importe individual = (A_REPARTIR_NETO / total_asistentes) × ponderación
 ```
 
-### Key Technologies
-- **Backend**: Python with pandas for data processing
-- **Frontend**: CustomTkinter for native desktop interface (NEW) / Streamlit for web interface (Legacy)
-- **Data**: Excel files (openpyxl for reading, xlsxwriter for export)
-- **Visualization**: Matplotlib & Seaborn for desktop charts / Plotly for web charts
+donde `A_REPARTIR_NETO` aplica la retención de banda configurada para el acto.
 
-## Data Structure
+## Reglas al modificar
 
-The application works with an Excel file (`Data/Actes.xlsx`) containing three sheets:
-
-1. **Asistencia**: Attendance data (214 musicians x 33 events) with binary attendance values
-2. **Presupuesto**: Budget information per event (COBRAT, LLOGATS, TRANSPORT, A REPARTIR)
-3. **Configuracion_Precios**: Payment weights by category (A, B, C, D, E) per event
-
-## Architecture
-
-### Main Components
-- `MusicianPaymentSystem`: Core class handling data loading and payment calculations
-- Multi-page Streamlit interface with navigation sidebar
-- Real-time budget vs distributed amount calculations
-- Excel export functionality with multiple sheets
-
-### Key Features
-1. **Dashboard**: Overview with key metrics and data visualization
-2. **Weight Editor**: Edit payment weights (ponderaciones) by category per event
-3. **Event Analysis**: Detailed analysis per event with musician counts by category
-4. **Processing & Export**: Complete payment calculation and Excel download
-
-### Payment Calculation Process
-The system follows a 17-step process:
-1. Transform attendance to long format
-2. Normalize names and values
-3. Join with budget and weights
-4. Filter attendees and calculate weighted payments
-5. Generate summaries and pivot tables
-6. Handle official events and export results
-
-## File Structure
-- `app_desktop.py`: NEW CustomTkinter desktop application
-- `launcher_desktop.py`: NEW Desktop application launcher
-- `start_desktop.bat`: NEW Windows batch file for desktop app
-- `start_desktop.sh`: NEW Mac/Linux shell script for desktop app
-- `app.py`: Legacy Streamlit web application
-- `launcher.py`: Legacy web launcher
-- `start_app.bat`: Legacy Windows batch file for web app
-- `setup_desktop.py`: Desktop environment setup script
-- `analyze_data.py`: Data structure analysis utility
-- `Data/Actes.xlsx`: Source data file
-- `requirements.txt`: Python dependencies (updated for CustomTkinter)
-- `INSTRUCCIONES.md`: User instructions
-
-## Key Improvements Made
-1. **NEW Desktop Application**: Complete native desktop interface using CustomTkinter
-   - No browser dependency
-   - Faster performance
-   - Better user experience
-   - Professional desktop appearance
-   - Native file dialogs and menus
-2. **Excel Upload**: Easy file loading with visual feedback
-3. **Number Formatting**: Fixed Excel export formatting (€209.38 instead of 20938698828310200)
-4. **Summary Sheet**: Added comprehensive RESUMEN_GENERAL sheet with:
-   - Key metrics (total budget, distributed, difference)
-   - Budget vs distributed by event
-   - Earnings by category summary
-5. **Multi-Platform Support**: Works on Windows, Mac, and Linux
-   - Platform-specific launchers
-   - Easy installation and setup
-
-## Payment Formula
-The system uses the correct formula: `(A_REPARTIR / total_asistentes) * ponderacion`
+- Si cambias `backend/core.py` o `backend/pricing.py`, ejecuta
+  `python tests/parity_check.py`: debe seguir dando **PARIDAD TOTAL**.
+- `legacy/` es solo referencia; no añadir funcionalidad nueva ahí.

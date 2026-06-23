@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistema de Cobro Musical</title>
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <!-- ============ SPRITE DE ICONOS (línea, estilo Lucide) ============ -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" x2="20" y1="8" y2="8"/><circle cx="9" cy="8" r="2.3"/><line x1="4" x2="20" y1="16" y2="16"/><circle cx="15" cy="16" r="2.3"/></symbol>
+      <symbol id="i-bank" viewBox="0 0 24 24"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+      <symbol id="i-cog" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M8 13h2M8 17h2M14 13h2M14 17h2"/></symbol>
+      <symbol id="i-clipboard" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></symbol>
+      <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V5"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M18 12h.01"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></symbol>
+      <symbol id="i-scale" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+      <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-banknote" viewBox="0 0 24 24"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+      <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M21.8 10A10 10 0 1 1 17 3.3"/><path d="m9 11 3 3L22 4"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-percent" viewBox="0 0 24 24"><line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 16v-3M12 16v-6M17 16v-9"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/static/assets/logo.png" alt="Escudo de la Sociedad Musical" />
+        <div>
+          <div class="brand-title">Cobro Musical</div>
+          <div class="brand-sub">Sistema de reparto</div>
+        </div>
+      </div>
+
+      <!-- Carga de archivo -->
+      <div class="upload-box">
+        <div class="section-label"><svg class="ico"><use href="#i-file"></use></svg> Archivo Excel</div>
+        <div id="dropzone" class="dropzone">
+          <input type="file" id="file-input" accept=".xlsx,.xls" hidden />
+          <p class="dz-main">Arrastra tu Excel aquí</p>
+          <p class="dz-sub">o haz clic para seleccionar</p>
+        </div>
+        <div id="file-meta" class="file-meta hidden"></div>
+        <button id="btn-upload" class="btn btn-primary btn-block hidden"><svg class="ico"><use href="#i-refresh"></use></svg> Cargar y Procesar</button>
+        <details class="hint">
+          <summary>Estructura del archivo</summary>
+          <div class="hint-body">
+            <strong>Hojas requeridas:</strong>
+            <ul>
+              <li><b>Asistencia</b>: músicos × actos</li>
+              <li><b>Presupuesto</b>: ACTES + importes</li>
+              <li><b>Configuracion</b>: ACTES, A, B, C, D, E</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+
+      <!-- Navegación -->
+      <nav class="nav">
+        <div class="section-label">Navegación</div>
+        <button class="nav-item active" data-page="dashboard"><svg class="ico"><use href="#i-dashboard"></use></svg> Dashboard</button>
+        <button class="nav-item" data-page="weights"><svg class="ico"><use href="#i-sliders"></use></svg> Ponderaciones</button>
+        <button class="nav-item" data-page="retention"><svg class="ico"><use href="#i-bank"></use></svg> Retención Banda</button>
+        <button class="nav-item" data-page="analysis"><svg class="ico"><use href="#i-calendar"></use></svg> Análisis por Actos</button>
+        <button class="nav-item" data-page="process"><svg class="ico"><use href="#i-cog"></use></svg> Procesar y Descargar</button>
+      </nav>
+
+      <div class="sidebar-foot">v2 · FastAPI</div>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="content">
+      <div id="toasts" class="toasts"></div>
+
+      <!-- estado sin datos -->
+      <section id="no-data" class="page">
+        <div class="empty-hero">
+          <div class="empty-logo"><img src="/static/assets/logo.png" alt="Escudo de la Sociedad Musical" /></div>
+          <h1>Sistema de Cobro Musical</h1>
+          <p>Carga un archivo Excel desde la barra lateral para comenzar.</p>
+          <ul class="feature-list">
+            <li><svg class="ico"><use href="#i-file"></use></svg> Carga cualquier Excel con asistencia y presupuestos</li>
+            <li><svg class="ico"><use href="#i-refresh"></use></svg> Se adapta automáticamente al número de actos</li>
+            <li><svg class="ico"><use href="#i-sliders"></use></svg> Edita ponderaciones por categoría en tiempo real</li>
+            <li><svg class="ico"><use href="#i-chart"></use></svg> Genera reportes completos y exporta a Excel</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ===== DASHBOARD ===== -->
+      <section id="page-dashboard" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Dashboard Principal</h1>
+          <p class="page-sub">Resumen general del reparto: presupuesto total, importe distribuido y composición de la banda.</p>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric"><div class="metric-head"><div class="metric-icon"><svg class="ico"><use href="#i-wallet"></use></svg></div><div class="metric-label">Total a Repartir</div></div><div class="metric-value" id="dash-budget">—</div></div>
+          <div class="metric"><div class="metric-head"><div class="metric-icon"><svg class="ico"><use href="#i-send"></use></svg></div><div class="metric-label">Total Distribuido</div></div><div class="metric-value" id="dash-distributed">—</div></div>
+          <div class="metric"><div class="metric-head"><div class="metric-icon"><svg class="ico"><use href="#i-scale"></use></svg></div><div class="metric-label">Diferencia</div></div><div class="metric-value" id="dash-diff">—</div></div>
+        </div>
+        <div class="card-grid-2">
+          <div class="card"><h3>Músicos por Categoría</h3><div id="chart-categories" class="chart"></div></div>
+          <div class="card"><h3>Top 10 Actos por Presupuesto</h3><div id="chart-budget" class="chart"></div></div>
+        </div>
+      </section>
+
+      <!-- ===== PONDERACIONES ===== -->
+      <section id="page-weights" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Editar Ponderaciones</h1>
+          <p class="page-sub">Ajusta las ponderaciones por categoría. Los cambios se aplican en tiempo real y se reflejan en el resumen y la vista previa.</p>
+        </div>
+
+        <div class="metrics-grid metrics-4" id="weights-metrics"></div>
+
+        <div class="card">
+          <h3><svg class="ico"><use href="#i-clipboard"></use></svg> Tabla de ponderaciones</h3>
+          <div class="table-wrap"><table id="weights-table" class="data-table editable"></table></div>
+          <div class="btn-row">
+            <button id="btn-weights-save" class="btn btn-primary"><svg class="ico"><use href="#i-save"></use></svg> Guardar cambios</button>
+            <button id="btn-weights-restore" class="btn btn-ghost"><svg class="ico"><use href="#i-refresh"></use></svg> Restaurar original</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3><svg class="ico"><use href="#i-tool"></use></svg> Herramientas automáticas</h3>
+          <div class="tabs">
+            <button class="tab active" data-tab="auto-a"><svg class="ico"><use href="#i-target"></use></svg> Ponderación A automática</button>
+            <button class="tab" data-tab="equalize"><svg class="ico"><use href="#i-scale"></use></svg> Igualar presupuestos</button>
+          </div>
+
+          <div class="tab-panel" data-panel="auto-a">
+            <p class="muted">Calcula la ponderación <b>A</b> para que Total Repartido = Neto. C=0.700 · D=0.600 · E=0.500 fijos · B se conserva · actos oficiales se omiten.</p>
+            <div class="form-row">
+              <label>Decimales de A
+                <input type="range" id="auto-decimales" min="2" max="6" value="4" step="1" />
+                <span id="auto-decimales-val" class="pill">4</span>
+              </label>
+              <label>Acto individual (opcional)
+                <select id="auto-evento"></select>
+              </label>
+            </div>
+            <div class="btn-row">
+              <button id="btn-auto-uno" class="btn btn-ghost" disabled><svg class="ico"><use href="#i-refresh"></use></svg> Recalcular este acto</button>
+              <button id="btn-auto-todos" class="btn btn-primary"><svg class="ico"><use href="#i-zap"></use></svg> Recalcular TODOS los no oficiales</button>
+            </div>
+            <div id="auto-result"></div>
+          </div>
+
+          <div class="tab-panel hidden" data-panel="equalize">
+            <p class="muted">Ajusta los presupuestos para que el precio unitario ponderado sea igual en los actos seleccionados.</p>
+            <label class="block">Actos a igualar
+              <select id="eq-eventos" multiple size="8" class="multiselect"></select>
+            </label>
+            <div class="form-row">
+              <label>Presupuesto total a repartir (€)
+                <input type="number" id="eq-total" min="0" step="100" value="0" />
+              </label>
+            </div>
+            <button id="btn-equalize" class="btn btn-primary"><svg class="ico"><use href="#i-zap"></use></svg> Calcular y aplicar</button>
+            <div id="eq-result"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3><svg class="ico"><use href="#i-eye"></use></svg> Vista previa en tiempo real</h3>
+          <p class="muted">Incluye la retención de banda configurada para cada acto.</p>
+          <div class="tabs">
+            <button class="tab active" data-tab="comp"><svg class="ico"><use href="#i-wallet"></use></svg> Comparación presupuestaria</button>
+            <button class="tab" data-tab="earn"><svg class="ico"><use href="#i-banknote"></use></svg> Ganancias por categoría</button>
+          </div>
+          <div class="tab-panel" data-panel="comp">
+            <div class="table-wrap"><table id="preview-comp-table" class="data-table"></table></div>
+          </div>
+          <div class="tab-panel hidden" data-panel="earn">
+            <div class="table-wrap"><table id="preview-earn-table" class="data-table"></table></div>
+            <p class="muted note"><svg class="ico"><use href="#i-info"></use></svg> Ganancia individual = (Neto / nº asistentes) × ponderación. Ya incluye la retención de banda.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== RETENCIÓN ===== -->
+      <section id="page-retention" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Configurar Retención de Banda</h1>
+          <p class="page-sub">Porcentaje que la banda retiene de cada acto <b>antes</b> de repartir entre los músicos.</p>
+        </div>
+
+        <div class="card">
+          <h3><svg class="ico"><use href="#i-percent"></use></svg> Retención por Acto</h3>
+          <div class="table-wrap"><table id="retention-table" class="data-table editable"></table></div>
+          <div class="btn-row">
+            <button id="btn-ret-save" class="btn btn-primary"><svg class="ico"><use href="#i-save"></use></svg> Guardar</button>
+            <button id="btn-ret-reset" class="btn btn-ghost"><svg class="ico"><use href="#i-refresh"></use></svg> Resetear a 0%</button>
+            <button id="btn-ret-template" class="btn btn-ghost"><svg class="ico"><use href="#i-clock"></use></svg> Plantilla rápida</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3><svg class="ico"><use href="#i-wallet"></use></svg> Impacto Financiero</h3>
+          <div class="metrics-grid" id="retention-metrics"></div>
+          <div id="retention-breakdown"></div>
+        </div>
+      </section>
+
+      <!-- ===== ANÁLISIS ===== -->
+      <section id="page-analysis" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Análisis por Actos</h1>
+          <p class="page-sub">Explora la asistencia por categoría y la información presupuestaria de cada acto.</p>
+        </div>
+        <label class="block">Selecciona un acto:
+          <select id="analysis-evento"></select>
+        </label>
+        <div class="card-grid-2">
+          <div class="card">
+            <h3><svg class="ico"><use href="#i-users"></use></svg> Músicos por Categoría</h3>
+            <div id="analysis-chart" class="chart"></div>
+            <div class="table-wrap"><table id="analysis-table" class="data-table"></table></div>
+          </div>
+          <div class="card">
+            <h3><svg class="ico"><use href="#i-wallet"></use></svg> Información Presupuestaria</h3>
+            <div id="analysis-budget" class="metrics-grid metrics-stack"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== PROCESAR ===== -->
+      <section id="page-process" class="page hidden">
+        <div class="page-head">
+          <h1 class="page-title">Procesar y Descargar</h1>
+          <p class="page-sub">Procesa todos los cálculos, aplica las penalizaciones y genera el Excel con los resultados detallados.</p>
+        </div>
+
+        <div class="card">
+          <h3><svg class="ico"><use href="#i-alert"></use></svg> Penalizaciones por Actos Oficiales</h3>
+          <div class="radio-group" id="penalty-criteria">
+            <label class="radio"><input type="radio" name="penalty" value="manual" checked /> <span>Introducir manualmente después de descargar el Excel</span></label>
+            <label class="radio"><input type="radio" name="penalty" value="fixed" /> <span>Cantidad fija por acto oficial no asistido</span></label>
+            <label class="radio"><input type="radio" name="penalty" value="average" /> <span>Media de ganancias por acto asistido</span></label>
+          </div>
+
+          <div id="penalty-fixed" class="penalty-config hidden">
+            <div class="radio-group">
+              <label class="radio"><input type="radio" name="penalty-type" value="uniform" checked /> <span>Cantidad igual para todas las categorías</span></label>
+              <label class="radio"><input type="radio" name="penalty-type" value="by_category" /> <span>Cantidad diferente por categoría</span></label>
+            </div>
+            <div id="penalty-uniform" class="form-row">
+              <label>Cantidad por acto no asistido (€)
+                <input type="number" id="penalty-uniform-amount" min="0" step="5" value="50" />
+              </label>
+            </div>
+            <div id="penalty-bycat" class="form-row hidden">
+              <label>A (€)<input type="number" class="pen-cat" data-cat="A" min="0" step="5" value="60" /></label>
+              <label>B (€)<input type="number" class="pen-cat" data-cat="B" min="0" step="5" value="55" /></label>
+              <label>C (€)<input type="number" class="pen-cat" data-cat="C" min="0" step="5" value="50" /></label>
+              <label>D (€)<input type="number" class="pen-cat" data-cat="D" min="0" step="5" value="45" /></label>
+              <label>E (€)<input type="number" class="pen-cat" data-cat="E" min="0" step="5" value="40" /></label>
+            </div>
+          </div>
+
+          <button id="btn-process" class="btn btn-primary btn-lg"><svg class="ico"><use href="#i-zap"></use></svg> Procesar Datos</button>
+        </div>
+
+        <div id="process-results" class="hidden">
+          <div class="metrics-grid metrics-4" id="process-metrics"></div>
+          <div id="process-penalty-metrics"></div>
+
+          <div class="card">
+            <div class="tabs">
+              <button class="tab active" data-tab="ms"><svg class="ico"><use href="#i-banknote"></use></svg> Resumen por Músico</button>
+              <button class="tab" data-tab="bc"><svg class="ico"><use href="#i-chart"></use></svg> Comparación Presupuesto</button>
+              <button class="tab" data-tab="mc"><svg class="ico"><use href="#i-users"></use></svg> Músicos por Categoría</button>
+              <button class="tab" data-tab="rd"><svg class="ico"><use href="#i-bank"></use></svg> Retención Banda</button>
+            </div>
+            <div class="tab-panel" data-panel="ms"><div class="table-wrap"><table id="res-ms" class="data-table"></table></div></div>
+            <div class="tab-panel hidden" data-panel="bc"><div class="table-wrap"><table id="res-bc" class="data-table"></table></div></div>
+            <div class="tab-panel hidden" data-panel="mc"><div class="table-wrap"><table id="res-mc" class="data-table"></table></div></div>
+            <div class="tab-panel hidden" data-panel="rd"><div class="table-wrap"><table id="res-rd" class="data-table"></table></div></div>
+          </div>
+
+          <div class="card">
+            <h3><svg class="ico"><use href="#i-download"></use></svg> Descargar Resultados</h3>
+            <div class="btn-row">
+              <button id="btn-export-full" class="btn btn-primary"><svg class="ico"><use href="#i-download"></use></svg> Excel Completo</button>
+              <button id="btn-export-basic" class="btn btn-ghost"><svg class="ico"><use href="#i-file"></use></svg> Excel Básico</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loading" class="loading-overlay hidden"><div class="spinner"></div><span id="loading-text">Procesando…</span></div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

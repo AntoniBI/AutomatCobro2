@@ -1,5 +1,4 @@
 import math
-import pandas as pd
 
 
 def calcular_ponderaciones_automaticas(
@@ -171,33 +170,3 @@ def calcular_presupuestos_iguales(
     presupuestos = {evento: valor_unitario * masas[evento] for evento in eventos}
 
     return presupuestos, valor_unitario
-
-# ---------------------------
-# Ejemplo de uso con tu archivo
-# ---------------------------
-if __name__ == "__main__":
-    # Cargar hojas
-    file_path = "Configuración Xecs.xlsx"
-    df_asistencia = pd.read_excel(file_path, sheet_name="Asistencia")
-    df_pond = pd.read_excel(file_path, sheet_name="Configuración Precios", index_col=0)
-
-    # Definir eventos y categorías
-    eventos = ["Processó La Milagrosa", "FIlles de Maria"]
-    categorias = ["A", "B", "C", "D", "E"]
-    PRESUPUESTO_MAX = 1800  # €
-
-    # Ejecutar cálculo
-    presupuestos, valor_unitario = calcular_presupuestos_iguales(
-        df_asistencia=df_asistencia,
-        df_ponderaciones=df_pond,
-        eventos=eventos,
-        categorias=categorias,
-        presupuesto_total_max=PRESUPUESTO_MAX
-    )
-
-    # Mostrar resultados
-    print("Valor unitario común: {:.4f} € por unidad ponderada".format(valor_unitario))
-    print("\nPresupuestos ajustados:")
-    for ev, pres in presupuestos.items():
-        print(f"  {ev}: {pres:.2f} €")
-    print(f"\nSuma total: {sum(presupuestos.values()):.2f} €")
