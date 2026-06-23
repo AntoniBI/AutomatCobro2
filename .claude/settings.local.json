@@ -54,7 +54,9 @@
       "Bash(rm -rf _shots __pycache__ backend/__pycache__)",
       "Bash(wc -l backend/*.py frontend/js/*.js legacy/streamlit_app.py)",
       "Bash(perl -i -CSD -pe 's/\\([\\\\x{1F4CB}\\\\x{274C}\\\\x{2705}\\\\x{1F4A1}\\\\x{1F4B0}\\\\x{1F3F7}\\\\x{26A0}]\\\\x{FE0F}?\\)\\\\s?//g' backend/core.py)",
-      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in ['backend/core.py','backend/pricing.py']]; print\\('sintaxis OK'\\)\")"
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in ['backend/core.py','backend/pricing.py']]; print\\('sintaxis OK'\\)\")",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Antoni\\\\Documents\\\\GitHub\\\\AutomatCobro2\\\\crear_acceso_directo.ps1\"; if \\(Test-Path \"$\\([Environment]::GetFolderPath\\('Desktop'\\)\\)\\\\Cobro Musical.lnk\"\\) { Write-Host \"VERIFICADO: el acceso directo existe.\" })",
+      "Bash(rm -rf __pycache__ backend/__pycache__)"
     ]
   }
 }
